@@ -9,7 +9,9 @@ A sophisticated agentic system built with **PydanticAI** that gives Claude the a
 
 This project demonstrates both basic agent functionality and advanced ReAct loop implementations with full observability through structured JSON logging.
 
----
+## Examples
+
+See [EXAMPLES.md](EXAMPLES.md) for real query/answer pairs from the data science agent analyzing US natural gas pipeline transportation data.
 
 ## Quickstart
 
@@ -217,12 +219,6 @@ python run_batch_queries.py queries.json \
 | Parallel (`--workers 5`) | ~300s | ~60s | **5x** |
 
 Perfect for batch analysis, model evaluation, and production data processing workflows.
-
----
-
-## Examples
-
-See [EXAMPLES.md](EXAMPLES.md) for real query/answer pairs from the data science agent analyzing US natural gas pipeline transportation data.
 
 ---
 
