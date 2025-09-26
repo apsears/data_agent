@@ -13,6 +13,18 @@ This project demonstrates both basic agent functionality and advanced ReAct loop
 
 See [EXAMPLES.md](EXAMPLES.md) for real query/answer pairs from the data science agent analyzing US natural gas pipeline transportation data.
 
+## Quick Execution:
+
+Install:
+```bash
+uv lock && uv pip install .
+```
+
+then run, e.g.:
+```
+source .venv/bin/activate && python run_agent.py --task "What was the total scheduled quantity in Texas during 2023?"
+```
+
 ## Quickstart
 
 1) **Python 3.11+** recommended.

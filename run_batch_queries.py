@@ -105,7 +105,7 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
 
     # Build command
     cmd = [
-        sys.executable, "-u", "run_agent.py",  # -u ensures unbuffered child output for live streaming
+        sys.executable, "-u", "run_agent.py.bak",  # -u ensures unbuffered child output for live streaming
         "--task", query["query"],
         "--query-id", query["id"],
         *base_args
