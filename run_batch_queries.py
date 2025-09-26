@@ -15,6 +15,7 @@ import re
 from datetime import datetime
 from pathlib import Path
 from typing import Dict, List, Any, Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 import yaml
 from jinja2 import Template
 import tiktoken
@@ -90,15 +91,16 @@ def count_tokens(text: str, model: str = "gpt-4o-mini") -> int:
         return len(text) // 4
 
 
-def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool = True) -> Dict[str, Any]:
+def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool = True, worker_id: int = 0) -> Dict[str, Any]:
     """Run a single query using run_agent.py and capture results.
 
     When stream=True, child stdout is printed live to the console while being captured
     for later parsing. This gives real-time progress visibility.
     """
+    worker_prefix = f"[Worker-{worker_id}]" if worker_id > 0 else ""
     print(f"\n{'='*60}")
-    print(f"Running Query {query['id']}: {query['category']}")
-    print(f"Query: {query['query']}")
+    print(f"{worker_prefix}Running Query {query['id']}: {query['category']}")
+    print(f"{worker_prefix}Query: {query['query']}")
     print(f"{'='*60}")
 
     # Build command
@@ -131,7 +133,8 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
             if line:
                 captured_lines.append(line)
                 if stream:
-                    print(line, end='', flush=True)
+                    prefixed_line = f"{worker_prefix}{line}" if worker_id > 0 and not line.startswith('[') else line
+                    print(prefixed_line, end='', flush=True)
             elif proc.poll() is not None:
                 # Process finished; drain any remaining output
                 if proc.stdout:
@@ -139,7 +142,8 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
                     if remainder:
                         captured_lines.append(remainder)
                         if stream:
-                            print(remainder, end='', flush=True)
+                            prefixed_remainder = f"{worker_prefix}{remainder}" if worker_id > 0 and not remainder.startswith('[') else remainder
+                            print(prefixed_remainder, end='', flush=True)
                 break
 
             # Enforce timeout
@@ -433,7 +437,81 @@ def save_results(results: List[Dict[str, Any]], output_file: str):
         json.dump(batch_summary, f, indent=2)
 
 
-def print_summary(results: List[Dict[str, Any]]):
+def run_query_with_judging(query_info: tuple) -> Dict[str, Any]:
+    """Helper function to run a single query with judging in parallel."""
+    query, base_args, config, judging_enabled, no_stream, worker_id = query_info
+
+    # Run the query
+    result = run_single_query(query, base_args, stream=not no_stream, worker_id=worker_id)
+
+    # Add judging if enabled and successful
+    if judging_enabled and result["success"]:
+        worker_prefix = f"[Worker-{worker_id}]" if worker_id > 0 else ""
+        print(f"{worker_prefix}  Judging result...")
+        judging_result = judge_single_result(result, query, config)
+        result["judging"] = judging_result
+
+    return result
+
+
+def run_queries_parallel(queries: List[Dict[str, Any]], base_args: List[str],
+                        config: Dict[str, Any], judging_enabled: bool,
+                        no_stream: bool, workers: int) -> List[Dict[str, Any]]:
+    """Run queries in parallel using ThreadPoolExecutor."""
+
+    if workers == 1:
+        # Serial execution (original behavior)
+        results = []
+        for i, query in enumerate(queries, 1):
+            print(f"\n[{i}/{len(queries)}] Processing query {query['id']}...")
+            result = run_query_with_judging((query, base_args, config, judging_enabled, no_stream, 0))
+            results.append(result)
+
+            # Brief pause between queries in serial mode
+            if i < len(queries):
+                time.sleep(2)
+
+        return results
+
+    # Parallel execution
+    print(f"\nRunning {len(queries)} queries in parallel with {workers} workers...")
+
+    # Prepare query info tuples with worker IDs
+    query_infos = []
+    for i, query in enumerate(queries):
+        worker_id = (i % workers) + 1
+        query_infos.append((query, base_args, config, judging_enabled, no_stream, worker_id))
+
+    results = [None] * len(queries)  # Preserve order
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        # Submit all queries
+        future_to_index = {
+            executor.submit(run_query_with_judging, query_info): i
+            for i, query_info in enumerate(query_infos)
+        }
+
+        # Collect results as they complete
+        for future in as_completed(future_to_index):
+            index = future_to_index[future]
+            try:
+                results[index] = future.result()
+                print(f"\n✅ Query {queries[index]['id']} completed")
+            except Exception as e:
+                print(f"\n❌ Query {queries[index]['id']} failed: {e}")
+                results[index] = {
+                    "query_id": queries[index]["id"],
+                    "query": queries[index]["query"],
+                    "category": queries[index]["category"],
+                    "success": False,
+                    "error": str(e),
+                    "execution_time": 0
+                }
+
+    return results
+
+
+def print_summary(results: List[Dict[str, Any]], total_time: float, workers: int):
     """Print execution summary."""
     successful = [r for r in results if r["success"]]
     failed = [r for r in results if not r["success"]]
@@ -445,7 +523,11 @@ def print_summary(results: List[Dict[str, Any]]):
     print(f"Total Queries: {len(results)}")
     print(f"Successful: {len(successful)}")
     print(f"Failed: {len(failed)}")
-    print(f"Total Time: {sum(r['execution_time'] for r in results):.1f} seconds")
+    print(f"Total Time: {total_time:.1f} seconds (wall clock)")
+    print(f"Cumulative Task Time: {sum(r['execution_time'] for r in results):.1f} seconds")
+    if workers > 1:
+        speedup = sum(r['execution_time'] for r in results) / total_time
+        print(f"Speedup: {speedup:.1f}x")
 
     if judged_results:
         total_cost = sum(r["judging"]["judging_cost"]["total_cost"] for r in judged_results)
@@ -488,6 +570,7 @@ def main():
     parser.add_argument("--config", type=str, default="config/config.yaml", help="Path to configuration file")
     parser.add_argument("--no-stream", action="store_true", help="Disable live streaming of agent output")
     parser.add_argument("--no-console-updates", action="store_true", help="Disable tool progress updates from agent")
+    parser.add_argument("--workers", type=int, default=1, help="Number of parallel workers (default: 1 for serial execution)")
 
     args = parser.parse_args()
 
@@ -529,32 +612,23 @@ def main():
     print(f"Running {len(queries)} queries with ReAct framework...")
     print(f"Template: {args.template}")
     print(f"Model: {args.model}")
+    print(f"Workers: {args.workers} ({'parallel' if args.workers > 1 else 'serial'})")
     print(f"Judging: {'Enabled' if judging_enabled else 'Disabled'}")
     print(f"Results will be saved to: {args.output}")
 
-    # Run queries
-    results = []
-    for i, query in enumerate(queries, 1):
-        print(f"\n[{i}/{len(queries)}] Processing query {query['id']}...")
-        result = run_single_query(query, base_args, stream=not args.no_stream)
-
-        # Add judging if enabled
-        if judging_enabled and result["success"]:
-            print(f"  Judging result...")
-            judging_result = judge_single_result(result, query, config)
-            result["judging"] = judging_result
-
-        results.append(result)
-
-        # Brief pause between queries
-        if i < len(queries):
-            time.sleep(2)
+    # Run queries (serial or parallel)
+    start_time = time.time()
+    results = run_queries_parallel(queries, base_args, config, judging_enabled, args.no_stream, args.workers)
+    total_time = time.time() - start_time
 
     # Save and display results
     save_results(results, args.output)
-    print_summary(results)
+    print_summary(results, total_time, args.workers)
 
     print(f"\nDetailed results saved to: {args.output}")
+
+    if args.workers > 1:
+        print(f"\n🚀 Parallel execution completed with {args.workers} workers in {total_time:.1f}s")
 
 
 if __name__ == "__main__":

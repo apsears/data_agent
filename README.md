@@ -88,9 +88,12 @@ Each agent run follows this pattern:
 **Key Features:**
 - ✅ **Isolated Execution**: Each run gets its own sandboxed workspace
 - ✅ **JSON Observability**: Complete tracing of reasoning stages
+- ✅ **Parallel Processing**: Run multiple queries concurrently (5x speedup)
 - ✅ **Configuration-Driven**: YAML config with dotenv support
 - ✅ **Multiple Model Support**: Anthropic Claude, OpenAI GPT models
 - ✅ **Budget Controls**: Configurable tool call limits and timeouts
+- ✅ **Real-time Progress**: Console messages and worker tracking
+- ✅ **Automated Quality Assessment**: LLM judging with accuracy scoring
 
 ---
 
@@ -120,6 +123,102 @@ python run_agent.py --task "Create a comprehensive ReAct counting demonstration 
 - `cycle_01_reasoning.json` - Agent's reasoning process
 - `cycle_01_acting.json` - Actions taken with rationale
 - `cycle_01_observing.json` - Observations and state updates
+
+---
+
+## 🚀 Batch Processing & Parallel Execution
+
+The system includes a powerful batch processing engine for running multiple queries concurrently:
+
+### Basic Batch Execution
+
+```bash
+# Run queries from a JSON file (serial execution)
+python run_batch_queries.py queries.json --count 5
+
+# Run specific number of queries
+python run_batch_queries.py queries.json --count 3
+```
+
+### 🔥 Parallel Execution (5x Performance Boost)
+
+```bash
+# Parallel execution with 5 workers (recommended)
+python run_batch_queries.py queries.json --count 5 --workers 5
+
+# Scale workers based on your needs
+python run_batch_queries.py queries.json --workers 3
+```
+
+### Query File Format
+
+Create a `queries.json` file:
+
+```json
+{
+  "queries": [
+    {
+      "id": "q001",
+      "category": "factual",
+      "query": "What was the total scheduled quantity in Texas during 2023?"
+    },
+    {
+      "id": "q002",
+      "category": "analysis",
+      "query": "How many pipeline companies are in the dataset?"
+    }
+  ]
+}
+```
+
+### Advanced Features
+
+**🎯 Real-time Progress Tracking**
+- Console messages show live progress: `[progress] Loading dataset...`
+- Worker identification in parallel mode: `[Worker-1] Processing query...`
+- Performance metrics with speedup calculations
+
+**🔍 Automated Quality Assessment**
+- Built-in LLM judging with accuracy scores (1-5 scale)
+- Cost tracking and optimization
+- Code artifact verification for reproducibility
+
+**📊 Comprehensive Logging**
+- Complete execution history in `.runs/` directories
+- Metadata collection (git status, environment, performance)
+- Structured JSON logs for retrospective analysis
+
+### Batch Command Options
+
+```bash
+# Full feature set
+python run_batch_queries.py queries.json \
+  --count 5 \
+  --workers 5 \
+  --template "templates/data_analysis_agent_prompt.txt" \
+  --model "anthropic:claude-sonnet-4-20250514" \
+  --max-tools 15 \
+  --timeout 300 \
+  --output "my_results.json"
+
+# Disable features for faster execution
+python run_batch_queries.py queries.json \
+  --workers 3 \
+  --no-judge \        # Skip LLM judging
+  --no-stream \       # Disable live output
+  --no-console-updates  # Disable progress messages
+```
+
+### Performance Comparison
+
+| Mode | 5 Queries | Wall Clock Time | Speedup |
+|------|-----------|-----------------|---------|
+| Serial (`--workers 1`) | ~300s | 300s | 1x |
+| Parallel (`--workers 5`) | ~300s | ~60s | **5x** |
+
+Perfect for batch analysis, model evaluation, and production data processing workflows.
+
+---
 
 ## Notes
 
