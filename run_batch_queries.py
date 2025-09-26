@@ -90,8 +90,12 @@ def count_tokens(text: str, model: str = "gpt-4o-mini") -> int:
         return len(text) // 4
 
 
-def run_single_query(query: Dict[str, Any], base_args: List[str]) -> Dict[str, Any]:
-    """Run a single query using run_agent.py and capture results."""
+def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool = True) -> Dict[str, Any]:
+    """Run a single query using run_agent.py and capture results.
+
+    When stream=True, child stdout is printed live to the console while being captured
+    for later parsing. This gives real-time progress visibility.
+    """
     print(f"\n{'='*60}")
     print(f"Running Query {query['id']}: {query['category']}")
     print(f"Query: {query['query']}")
@@ -99,36 +103,64 @@ def run_single_query(query: Dict[str, Any], base_args: List[str]) -> Dict[str, A
 
     # Build command
     cmd = [
-        sys.executable, "run_agent.py",
+        sys.executable, "-u", "run_agent.py",  # -u ensures unbuffered child output for live streaming
         "--task", query["query"],
+        "--query-id", query["id"],
         *base_args
     ]
 
     start_time = time.time()
 
     try:
-        # Run the command
-        result = subprocess.run(
+        # Launch the command and optionally stream stdout in real time
+        proc = subprocess.Popen(
             cmd,
-            capture_output=True,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
             text=True,
-            timeout=600  # 10 minute timeout per query
+            bufsize=1,
+            env=os.environ.copy(),
         )
+
+        captured_lines: List[str] = []
+        timeout_sec = 600  # 10 minute timeout per query
+
+        # Read incrementally to allow live progress
+        while True:
+            line = proc.stdout.readline() if proc.stdout else ''
+            if line:
+                captured_lines.append(line)
+                if stream:
+                    print(line, end='', flush=True)
+            elif proc.poll() is not None:
+                # Process finished; drain any remaining output
+                if proc.stdout:
+                    remainder = proc.stdout.read()
+                    if remainder:
+                        captured_lines.append(remainder)
+                        if stream:
+                            print(remainder, end='', flush=True)
+                break
+
+            # Enforce timeout
+            if time.time() - start_time > timeout_sec:
+                proc.kill()
+                raise subprocess.TimeoutExpired(cmd, timeout_sec)
 
         execution_time = time.time() - start_time
 
-        # Parse the output to extract final answer
-        stdout_lines = result.stdout.strip().split('\n')
-        final_answer_start = None
+        full_stdout = ''.join(captured_lines)
+        stdout_lines = full_stdout.strip().split('\n') if full_stdout else []
 
+        # Parse the output to extract final answer
+        final_answer_start = None
         for i, line in enumerate(stdout_lines):
             if "=== FINAL ANSWER ===" in line:
                 final_answer_start = i + 1
                 break
 
         final_answer = ""
-        if final_answer_start:
-            # Join lines from final answer section until end
+        if final_answer_start is not None:
             final_answer = '\n'.join(stdout_lines[final_answer_start:])
 
         # Extract run directory for artifacts
@@ -142,13 +174,13 @@ def run_single_query(query: Dict[str, Any], base_args: List[str]) -> Dict[str, A
             "query_id": query["id"],
             "query": query["query"],
             "category": query["category"],
-            "success": result.returncode == 0,
+            "success": (proc.returncode or 0) == 0,
             "execution_time": execution_time,
             "final_answer": final_answer,
             "run_directory": run_directory,
-            "stdout": result.stdout,
-            "stderr": result.stderr,
-            "return_code": result.returncode
+            "stdout": full_stdout,
+            "stderr": "",  # merged into stdout
+            "return_code": proc.returncode or 0,
         }
 
     except subprocess.TimeoutExpired:
@@ -454,6 +486,8 @@ def main():
                        help="Output file for results (default: batch_results_TIMESTAMP.json)")
     parser.add_argument("--no-judge", action="store_true", help="Disable LLM judging of results")
     parser.add_argument("--config", type=str, default="config/config.yaml", help="Path to configuration file")
+    parser.add_argument("--no-stream", action="store_true", help="Disable live streaming of agent output")
+    parser.add_argument("--no-console-updates", action="store_true", help="Disable tool progress updates from agent")
 
     args = parser.parse_args()
 
@@ -485,6 +519,10 @@ def main():
         "--model", args.model
     ]
 
+    # Default ON: pass console updates unless explicitly disabled
+    if not args.no_console_updates:
+        base_args.append("--console-updates")
+
     # Determine if judging should be enabled
     judging_enabled = config.get("judging", {}).get("enabled", True) and not args.no_judge
 
@@ -498,7 +536,7 @@ def main():
     results = []
     for i, query in enumerate(queries, 1):
         print(f"\n[{i}/{len(queries)}] Processing query {query['id']}...")
-        result = run_single_query(query, base_args)
+        result = run_single_query(query, base_args, stream=not args.no_stream)
 
         # Add judging if enabled
         if judging_enabled and result["success"]:

@@ -32,6 +32,8 @@ dependencies = [
     # Progress tracking and logging
     "tqdm>=4.65.0",
     "rich>=13.0.0",
+    # Version control integration
+    "gitpython>=3.1.0",
     # File handling
     "openpyxl>=3.1.0",
     "xlsxwriter>=3.1.0",

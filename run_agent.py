@@ -14,6 +14,9 @@ from pydantic_ai import Agent, RunContext
 
 from runner_utils import Workspace, RunConfig
 
+# Console update control (toggled by --console-updates)
+CONSOLE_UPDATES = False
+
 # ----------------------------
 # ReAct Models (Simplified)
 # ----------------------------
@@ -104,14 +107,15 @@ def build_agent(model: str) -> Agent[Deps, FinalAnswer]:
         "You are an autonomous analyst using ReAct methodology: Think briefly, then call tools when needed, reflect on results.\n\n"
 
         "AVAILABLE TOOLS:\n"
-        "- write_file: Create Python scripts or data files\n"
-        "- run_python: Execute Python scripts in workspace\n"
-        "- read_file: Read file contents\n"
-        "- list_files: See what files exist\n\n"
+        "- write_file: Create Python scripts or data files (always include console_message_update)\n"
+        "- run_python: Execute Python scripts in workspace (always include console_message_update)\n"
+        "- read_file: Read file contents (always include console_message_update)\n"
+        "- list_files: See what files exist (always include console_message_update)\n\n"
 
         "PROCESS:\n"
         "1. Think briefly about what to do next\n"
-        "2. Call a tool when needed (tools return results automatically)\n"
+        "2. Call a tool when needed (tools return results automatically).\n"
+        "   When calling tools, ALWAYS set console_message_update to a short, user-friendly progress note (no jargon).\n"
         "3. Reflect on tool results and continue or conclude\n"
         "4. When done, output FinalAnswer with your conclusion\n\n"
 
@@ -132,7 +136,7 @@ def build_agent(model: str) -> Agent[Deps, FinalAnswer]:
     # ---- Tools ----
 
     @agent.tool
-    def write_file(ctx: RunContext[Deps], path: str, contents: str, executable: bool = False) -> dict:
+    def write_file(ctx: RunContext[Deps], path: str, contents: str, executable: bool = False, console_message_update: Optional[str] = None) -> dict:
         """Write a text file inside the workspace. Keep it small. Params:
         - path: relative path, e.g. 'main.py'
         - contents: UTF-8 text
@@ -146,7 +150,8 @@ def build_agent(model: str) -> Agent[Deps, FinalAnswer]:
                 "path": path,
                 "contents_preview": contents[:100] + "..." if len(contents) > 100 else contents,
                 "contents_length": len(contents),
-                "executable": executable
+                "executable": executable,
+                "console_message_update": console_message_update,
             },
             "tool_calls_used": ctx.deps.used_tools
         }, ctx.deps.workspace)
@@ -166,12 +171,12 @@ def build_agent(model: str) -> Agent[Deps, FinalAnswer]:
         return result
 
     @agent.tool
-    def read_file(ctx: RunContext[Deps], path: str) -> dict:
+    def read_file(ctx: RunContext[Deps], path: str, console_message_update: Optional[str] = None) -> dict:
         """Read a file from the workspace with a truncated preview."""
         # Log tool call input
         log_react_event("tool_call_start", {
             "tool_name": "read_file",
-            "parameters": {"path": path},
+            "parameters": {"path": path, "console_message_update": console_message_update},
             "tool_calls_used": ctx.deps.used_tools
         }, ctx.deps.workspace)
 
@@ -189,12 +194,12 @@ def build_agent(model: str) -> Agent[Deps, FinalAnswer]:
         return result
 
     @agent.tool
-    def list_files(ctx: RunContext[Deps]) -> list[dict]:
+    def list_files(ctx: RunContext[Deps], console_message_update: Optional[str] = None) -> list[dict]:
         """List files present in the workspace (path, bytes, sha256)."""
         # Log tool call input
         log_react_event("tool_call_start", {
             "tool_name": "list_files",
-            "parameters": {},
+            "parameters": {"console_message_update": console_message_update},
             "tool_calls_used": ctx.deps.used_tools
         }, ctx.deps.workspace)
 
@@ -212,7 +217,7 @@ def build_agent(model: str) -> Agent[Deps, FinalAnswer]:
         return result
 
     @agent.tool
-    def run_python(ctx: RunContext[Deps], entrypoint: str = "main.py", args: Optional[list[str]] = None, timeout_sec: Optional[int] = None) -> dict:
+    def run_python(ctx: RunContext[Deps], entrypoint: str = "main.py", args: Optional[list[str]] = None, timeout_sec: Optional[int] = None, console_message_update: Optional[str] = None) -> dict:
         """Run a Python script within the workspace.
         - entrypoint: relative path to .py file (default 'main.py')
         - args: list of CLI args to pass
@@ -225,7 +230,8 @@ def build_agent(model: str) -> Agent[Deps, FinalAnswer]:
             "parameters": {
                 "entrypoint": entrypoint,
                 "args": args or [],
-                "timeout_sec": timeout_sec
+                "timeout_sec": timeout_sec,
+                "console_message_update": console_message_update,
             },
             "tool_calls_used": ctx.deps.used_tools
         }, ctx.deps.workspace)
@@ -251,6 +257,36 @@ def build_agent(model: str) -> Agent[Deps, FinalAnswer]:
 # ----------------------------
 # ReAct Controller with JSON Logging
 # ----------------------------
+def _format_tool_brief(event_type: str, data: dict) -> str:
+    """Create a compact, human-friendly summary of a tool event."""
+    tool = data.get("tool_name", "tool")
+    params = data.get("parameters", {})
+    result = data.get("result", {})
+
+    if tool == "write_file":
+        if event_type == "tool_call_complete" and result:
+            return f"{event_type}: write_file path={result.get('path')} bytes={result.get('bytes')}"
+        return f"{event_type}: write_file path={params.get('path')} bytes={params.get('contents_length')}"
+    if tool == "read_file":
+        if event_type == "tool_call_complete" and result:
+            return f"{event_type}: read_file path={result.get('path')} bytes={result.get('bytes')}"
+        return f"{event_type}: read_file path={params.get('path')}"
+    if tool == "list_files":
+        if event_type == "tool_call_complete" and result:
+            count = len(result.get('files', [])) if isinstance(result, dict) else None
+            return f"{event_type}: list_files count={count}"
+        return f"{event_type}: list_files"
+    if tool == "run_python":
+        ep = params.get('entrypoint')
+        args = params.get('args') or []
+        if event_type == "tool_call_complete" and result:
+            rc = result.get('exit_code')
+            wall = result.get('wall_time_sec')
+            return f"{event_type}: run_python {ep} exit={rc} time={wall}s"
+        return f"{event_type}: run_python {ep} args={args}"
+    return f"{event_type}: {tool}"
+
+
 def log_react_event(event_type: str, data: dict, workspace: Workspace):
     """Log ReAct events to JSON file for observability"""
     log_entry = {
@@ -262,6 +298,12 @@ def log_react_event(event_type: str, data: dict, workspace: Workspace):
     log_file = workspace.workspace / "react_log.jsonl"
     with open(log_file, "a") as f:
         f.write(json.dumps(log_entry) + "\n")
+
+    # Optional console echo for progress visibility: show ONLY user-provided start messages.
+    if CONSOLE_UPDATES and event_type == "tool_call_start":
+        custom = data.get("parameters", {}).get("console_message_update")
+        if isinstance(custom, str) and custom.strip():
+            print(f"[progress] {custom.strip()}", flush=True)
 
 class LoggingAgent:
     """Wrapper to add comprehensive logging to PydanticAI agent"""
@@ -288,11 +330,11 @@ class LoggingAgent:
         log_react_event("llm_input", user_message_data, self.workspace)
         self.conversation_history.append(user_message_data)
 
-        print(f"\n=== LLM Interaction {self.message_count} ===")
-        print(f"USER → LLM: {message[:100]}{'...' if len(message) > 100 else ''}")
-
         # Run the actual agent
         result = self.agent.run_sync(message, deps=deps)
+
+        # Extract and display console update messages from the conversation
+        self._extract_and_display_console_messages(result)
 
         # Log the complete LLM response
         llm_response_data = {
@@ -337,20 +379,42 @@ class LoggingAgent:
             }
         }, self.workspace)
 
-        print(f"LLM → USER: {type(result.output).__name__}")
-        if hasattr(result.output, 'model_dump'):
-            output_dict = result.output.model_dump()
-            if 'answer' in output_dict:
-                print(f"ANSWER: {output_dict['answer'][:100]}{'...' if len(output_dict.get('answer', '')) > 100 else ''}")
-            if 'artifacts' in output_dict and output_dict['artifacts']:
-                print(f"ARTIFACTS: {output_dict['artifacts']}")
-
         return result
+
+    def _extract_and_display_console_messages(self, result):
+        """Extract and display console_update_message from LLM responses"""
+        import re
+
+        # Check if result has messages (conversation history)
+        if not hasattr(result, 'messages'):
+            return
+
+        # Look for console_update_message patterns in assistant messages
+        console_pattern = r'console_update_message:\s*["\']?([^"\'\n]+)["\']?'
+
+        for msg in result.messages:
+            if hasattr(msg, 'role') and msg.role == 'assistant':
+                content = str(msg.content)
+                matches = re.findall(console_pattern, content, re.IGNORECASE)
+
+                for match in matches:
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    formatted_message = f"[{timestamp}] {match.strip()}"
+
+                    # Display with distinctive formatting
+                    print(f"📊 {formatted_message}")
+
+                    # Log the console update event
+                    log_react_event("console_update", {
+                        "timestamp": timestamp,
+                        "message": match.strip(),
+                        "extracted_from": "llm_response"
+                    }, self.workspace)
 
 def run_react_task(task: str, agent: Agent, deps: Deps, template_path: Optional[str] = None) -> FinalAnswer:
     """Run task using native PydanticAI flow with comprehensive JSON logging"""
 
-    print("Starting ReAct task with native PydanticAI tool calling and JSON logging...")
+    print("Starting Data Science Agent query")
 
     # Wrap agent with logging
     logging_agent = LoggingAgent(agent, deps.workspace)
@@ -379,8 +443,7 @@ def run_react_task(task: str, agent: Agent, deps: Deps, template_path: Optional[
             "final_answer": result.output.model_dump() if hasattr(result.output, 'model_dump') else str(result.output)
         }, deps.workspace)
 
-        print(f"\nTask completed! Used {deps.used_tools} tool calls.")
-        print(f"JSON log available at: {deps.workspace.workspace}/react_log.jsonl")
+        # Intentionally keep console quiet here; progress is shown via tool updates.
 
         return result.output
 
@@ -414,6 +477,126 @@ def load_config(config_path: str = "config/config.yaml") -> dict:
             return yaml.safe_load(f)
     return {}
 
+
+def generate_run_metadata(task: str, workspace: Workspace, start_time: datetime, end_time: datetime,
+                         model: str, template_path: Optional[str], max_tools: int, timeout: int,
+                         tool_calls_used: int, success: bool, query_id: Optional[str] = None) -> dict:
+    """Generate comprehensive metadata for a run."""
+    import platform
+    import sys
+    import git
+    from pathlib import Path
+
+    # Get git information if available
+    git_info = {}
+    try:
+        repo = git.Repo(search_parent_directories=True)
+        git_info = {
+            "commit_hash": repo.head.object.hexsha,
+            "branch": repo.active_branch.name,
+            "is_dirty": repo.is_dirty(),
+            "remote_url": repo.remotes.origin.url if repo.remotes else None
+        }
+    except:
+        git_info = {"error": "Git repository not found or accessible"}
+
+    # Get dataset info if available
+    dataset_info = {}
+    data_path = workspace.workspace / "data"
+    if data_path.exists() and data_path.is_symlink():
+        try:
+            real_path = data_path.readlink()
+            if real_path.exists():
+                stat = real_path.stat()
+                dataset_info = {
+                    "data_path": str(real_path),
+                    "data_size_bytes": stat.st_size,
+                    "data_modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                }
+        except:
+            dataset_info = {"error": "Could not access dataset information"}
+
+    # Get workspace files created during run
+    workspace_files = []
+    if workspace.workspace.exists():
+        for file_path in workspace.workspace.rglob("*"):
+            if file_path.is_file() and not file_path.name.startswith('.'):
+                try:
+                    stat = file_path.stat()
+                    relative_path = file_path.relative_to(workspace.workspace)
+                    workspace_files.append({
+                        "path": str(relative_path),
+                        "size_bytes": stat.st_size,
+                        "modified": datetime.fromtimestamp(stat.st_mtime).isoformat()
+                    })
+                except:
+                    pass  # Skip files we can't access
+
+    metadata = {
+        # Run identification
+        "run_id": workspace.workspace.parent.name,
+        "query_id": query_id,
+        "timestamp": {
+            "start": start_time.isoformat(),
+            "end": end_time.isoformat(),
+            "duration_seconds": (end_time - start_time).total_seconds()
+        },
+
+        # Task information
+        "task": {
+            "text": task,
+            "template_path": template_path,
+            "template_exists": Path(template_path).exists() if template_path else False
+        },
+
+        # Execution parameters
+        "execution": {
+            "model": model,
+            "max_tools": max_tools,
+            "timeout_seconds": timeout,
+            "tool_calls_used": tool_calls_used,
+            "success": success
+        },
+
+        # Environment information
+        "environment": {
+            "python_version": sys.version,
+            "platform": platform.platform(),
+            "hostname": platform.node(),
+            "working_directory": str(Path.cwd())
+        },
+
+        # Version control
+        "git": git_info,
+
+        # Dataset information
+        "dataset": dataset_info,
+
+        # Workspace files generated
+        "workspace_files": workspace_files,
+
+        # Framework versions
+        "versions": {
+            "python": sys.version.split()[0],
+            "platform_system": platform.system(),
+            "platform_release": platform.release()
+        }
+    }
+
+    return metadata
+
+
+def save_run_metadata(metadata: dict, workspace: Workspace):
+    """Save run metadata to metadata.json in the workspace (no console noise)."""
+    metadata_path = workspace.workspace / "metadata.json"
+    try:
+        with open(metadata_path, 'w') as f:
+            json.dump(metadata, f, indent=2)
+    except Exception:
+        # Quietly ignore metadata save issues in console; logs contain details.
+        pass
+
+
 def main():
     # Load environment variables from .env file
     load_dotenv()
@@ -425,6 +608,7 @@ def main():
     ap.add_argument("--task", type=str, help="Guiding task (one-liner).")
     ap.add_argument("--task-file", type=str, help="Path to a text file containing the guiding task.")
     ap.add_argument("--template", type=str, help="Path to Jinja2 template file for formatting task (optional).")
+    ap.add_argument("--query-id", type=str, help="Query ID for batch processing (optional).")
     ap.add_argument("--config", type=str, default="config/config.yaml", help="Path to config YAML file.")
 
     # Override defaults with config values if available
@@ -437,7 +621,18 @@ def main():
     ap.add_argument("--max-tools", type=int, default=max_tools_default, help="Maximum number of tool calls allowed.")
     ap.add_argument("--timeout", type=int, default=timeout_default, help="Seconds before a run_python call is killed.")
     ap.add_argument("--workspace", type=str, default=workspace_default, help="Base directory for runs; a unique subfolder is created per run.")
+    ap.add_argument("--console-updates", action="store_true", help="Echo concise tool progress updates to console.")
+    ap.add_argument("--no-console-updates", action="store_true", help="Disable tool progress updates.")
     args = ap.parse_args()
+
+    # Apply console update preference
+    global CONSOLE_UPDATES
+    # Default ON; allow explicit disable
+    CONSOLE_UPDATES = True
+    if getattr(args, "no_console_updates", False):
+        CONSOLE_UPDATES = False
+    if getattr(args, "console_updates", False):
+        CONSOLE_UPDATES = True
 
     # Load config again if a different config file was specified
     if args.config != "config/config.yaml":
@@ -466,11 +661,65 @@ def main():
     # Build agent
     agent = build_agent(args.model)
 
-    # Run using ReAct methodology
-    result = run_react_task(task.strip(), agent, deps, args.template)
+    # Track execution timing
+    start_time = datetime.now()
+    success = False
 
+    try:
+        # Run using ReAct methodology
+        result = run_react_task(task.strip(), agent, deps, args.template)
+        success = True
+    finally:
+        end_time = datetime.now()
+
+        # Generate and save run metadata (inserted at end, after agent execution)
+        metadata = generate_run_metadata(
+            task=task.strip(),
+            workspace=ws,
+            start_time=start_time,
+            end_time=end_time,
+            model=args.model,
+            template_path=args.template,
+            max_tools=args.max_tools,
+            timeout=args.timeout,
+            tool_calls_used=deps.used_tools,
+            success=success,
+            query_id=args.query_id
+        )
+        save_run_metadata(metadata, ws)
+
+    # Print only the answer string, not the full result dict
     print("\n=== FINAL ANSWER ===")
-    print(result.model_dump_json(indent=2))
+    answer_text = None
+    # Prefer structured output
+    if hasattr(result, "output"):
+        try:
+            if hasattr(result.output, "answer"):
+                answer_text = result.output.answer
+            elif isinstance(result.output, dict) and "answer" in result.output:
+                answer_text = result.output["answer"]
+        except Exception:
+            answer_text = None
+
+    # Fallback: read response.json in workspace if present
+    if not answer_text:
+        try:
+            resp_path = ws.workspace / "response.json"
+            if resp_path.exists():
+                data = json.loads(resp_path.read_text(encoding="utf-8"))
+                if isinstance(data, dict) and "answer" in data:
+                    answer_text = data["answer"]
+        except Exception:
+            answer_text = None
+
+    # Final fallback: stringify output
+    if not answer_text:
+        try:
+            answer_text = result.model_dump_json(indent=2)
+        except Exception:
+            answer_text = str(getattr(result, "output", ""))
+
+    print(answer_text)
     print(f"\nRun directory: {ws.run_dir}\nWorkspace: {ws.workspace}\n")
 
 if __name__ == "__main__":

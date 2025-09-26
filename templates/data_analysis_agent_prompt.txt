@@ -50,6 +50,20 @@ Your analysis should produce:
 - **Data quality notes** if they affect the analysis
 {% endif %}
 
+**MANDATORY COMMUNICATION PROTOCOL: You MUST include console_update_message in EVERY response before taking actions:**
+
+1. **START every response** with a console_update_message describing your current plan
+2. **INCLUDE console_update_message** before each tool use to communicate your progress
+3. **FORMAT**: Include the exact text `console_update_message: "Your status message here"` in your response
+4. **EXAMPLES**:
+   - `console_update_message: "Starting analysis of Texas 2023 pipeline data - planning approach"`
+   - `console_update_message: "Loading dataset and performing initial data exploration"`
+   - `console_update_message: "Filtering data for Texas state and 2023 timeframe"`
+   - `console_update_message: "Calculating total scheduled quantities and generating summary statistics"`
+   - `console_update_message: "Creating visualizations to support findings"`
+
+**CRITICAL**: These messages are parsed and displayed to users in real-time with timestamps. Always include them!
+
 **CRITICAL: Always create a `response.json` file with your final structured answer using this exact format:**
 ```json
 {
@@ -63,9 +77,16 @@ Your analysis should produce:
   "numerical_results": {
     "primary_value": 12345,
     "units": "appropriate unit"
+  },
+  "code_artifacts": {
+    "analysis_script": "main_analysis.py",
+    "data_processing": "process_data.py",
+    "visualization": "create_charts.py"
   }
 }
 ```
+
+**CODE ARTIFACTS: Include references to the key code files that produced your results in the response.json. The judge will read these files to verify your methodology matches your explanation.**
 
 ## GUIDELINES
 
