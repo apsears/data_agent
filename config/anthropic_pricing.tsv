@@ -1,0 +1,5 @@
+Model	Input	Output	Input_Cached	Output_Notes
+claude-sonnet-4-20250514	3.00	15.00	0.30	Standard context ≤200K tokens
+claude-sonnet-4-large-context	6.00	22.50	0.60	Large context >200K tokens
+claude-3-5-haiku-20241022	0.80	4.00	0.08	Most cost-effective
+claude-haiku-3.5	0.80	4.00	0.08	Most cost-effective

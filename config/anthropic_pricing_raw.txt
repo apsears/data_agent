@@ -1,0 +1,34 @@
+Sonnet 4
+Optimal balance of intelligence, cost, and speed
+Input
+Prompts ≤ 200K tokens
+$3 / MTok
+Prompts > 200K tokens
+$6 / MTok
+Output
+Prompts ≤ 200K tokens
+$15 / MTok
+Prompts > 200K tokens
+$22.50 / MTok
+Prompt cachingwhy
+≤ 200K tokens
+Write
+$3.75 / MTok
+Read
+$0.30 / MTok
+> 200K tokens
+Write
+$7.50 / MTok
+Read
+$0.60 / MTok
+Haiku 3.5
+Fastest, most cost-effective model
+Input
+$0.80 / MTok
+Output
+$4 / MTok
+Prompt Caching
+Write
+$1 / MTok
+Read
+$0.08 / MTok

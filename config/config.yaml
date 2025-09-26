@@ -1,0 +1,25 @@
+model:
+  provider: "anthropic"
+  name: "claude-sonnet-4-20250514"
+
+agent:
+  max_tools: 20
+  timeout_sec: 60
+  allow_network: false
+
+react_demo:
+  target_number: 5
+  max_cycles: 10
+
+workspace:
+  base_dir: ".runs"
+
+judging:
+  enabled: true
+  model: "anthropic:claude-3-5-haiku-20241022"  # Cost-effective model for judging
+  template: "templates/judging_prompt.txt"
+  timeout_sec: 30
+  score_threshold: 3.0  # Minimum score to consider response acceptable
+
+# Environment variables are loaded from .env file
+# ANTHROPIC_API_KEY and OPENAI_API_KEY should be set there
