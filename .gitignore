@@ -91,3 +91,7 @@ site/
 # Batch results and judging outputs
 batch_results_*.json
 *_judged.json
+
+# progress docs
+docs/
+
