@@ -220,6 +220,12 @@ Perfect for batch analysis, model evaluation, and production data processing wor
 
 ---
 
+## Examples
+
+See [EXAMPLES.md](EXAMPLES.md) for real query/answer pairs from the data science agent analyzing US natural gas pipeline transportation data.
+
+---
+
 ## Notes
 
 - Keep tasks modest: simple data munging, small algorithms, tiny CSVs, etc.
