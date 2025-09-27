@@ -304,5 +304,86 @@ Actual: {{ actual_answer }}"""
             Path(template_file).unlink()
 
 
+@patch('run_batch_queries.anthropic.Anthropic')
+@patch('run_batch_queries.Path')
+def test_anthropic_api_call_debug(mock_path, mock_anthropic):
+    """Test to isolate the Anthropic API call issue."""
+    sample_result = {
+        "query_id": "debug-test",
+        "query": "How has monthly gas flow in Texas changed from 2022 to 2024?",
+        "success": True,
+        "final_answer": "Based on analysis, Texas gas flow increased by 10.08% from 2022 to 2024, with strong growth from 2022 to 2023 (+13.28%) and modest growth from 2023 to 2024 (+1.62%). Monthly flows ranged from 843M to 1,160M units.",
+        "execution_time": 47.2
+    }
+
+    sample_query_data = {
+        "id": "debug-test",
+        "query": "How has monthly gas flow in Texas changed from 2022 to 2024?",
+        "expected_answer": "Analysis of Texas monthly gas flow trends over 2022-2024",
+        "analysis_type": "factual"
+    }
+
+    sample_config = {
+        "judging": {
+            "model": "anthropic:claude-3-5-haiku-20241022",
+            "template": "templates/judging_prompt.txt"
+        }
+    }
+
+    # Mock template file exists
+    mock_path.return_value.exists.return_value = True
+    mock_path.return_value.read_text.return_value = "Evaluate this query: {{query}}\nExpected: {{expected_answer}}\nActual: {{actual_answer}}"
+
+    # Mock Anthropic client and response
+    mock_client = MagicMock()
+    mock_anthropic.return_value = mock_client
+
+    # Create a mock response that matches the Anthropic API structure
+    mock_response = MagicMock()
+    mock_response.content = [MagicMock()]
+    mock_response.content[0].input = {
+        "accuracy_score": 4,
+        "explanation": "Good analysis with clear trends",
+        "confidence": 0.85
+    }
+    mock_response.usage.input_tokens = 150
+    mock_response.usage.output_tokens = 75
+
+    # Ensure hasattr returns True for the input attribute
+    mock_response.content[0].__dict__['input'] = mock_response.content[0].input
+
+    mock_client.messages.create.return_value = mock_response
+
+    # Mock pricing data
+    with patch('run_batch_queries.load_pricing_data') as mock_pricing:
+        mock_pricing.return_value = {
+            "claude-3-5-haiku-20241022": {
+                "input_per_1m": 0.80,
+                "output_per_1m": 4.00
+            }
+        }
+
+        # Execute the function
+        result = judge_single_result(sample_result, sample_query_data, sample_config)
+
+        # Debug the actual error
+        print(f"Judging result: {result}")
+        if not result["judging_performed"]:
+            print(f"Error: {result.get('error', 'No error message')}")
+
+        # Verify successful execution
+        assert result["judging_performed"] is True
+        assert result["accuracy_score"] == 4
+        assert result["explanation"] == "Good analysis with clear trends"
+        assert result["confidence"] == 0.85
+        assert "error" not in result
+
+        # Verify the API was called correctly
+        mock_client.messages.create.assert_called_once()
+        call_args = mock_client.messages.create.call_args
+        assert call_args[1]["model"] == "claude-3-5-haiku-20241022"
+        assert call_args[1]["tools"][0]["name"] == "judge_result"
+
+
 if __name__ == "__main__":
     pytest.main([__file__])

@@ -113,6 +113,7 @@ Each agent run follows this pattern:
 - ✅ **No-Fallback Design**: Fail-fast approach for reliable error detection
 - ✅ **Production Ready**: Recent fixes ensure reliable script execution and logging
 - ✅ **Data Analysis Capabilities**: Successfully analyzes multi-GB datasets with comprehensive results
+- ✅ **Token Usage & Cost Tracking**: Real-time tiktoken counting with detailed cost breakdowns
 
 ---
 
@@ -203,6 +204,14 @@ Create a `queries.json` file:
 - Cost tracking and optimization
 - Code artifact verification for reproducibility
 
+**💰 Token Usage & Cost Tracking**
+- Real-time tiktoken counting during agent execution
+- Accurate cost calculation using `config/anthropic_pricing.tsv` and `config/openai_pricing.tsv`
+- Detailed cost breakdowns in metadata.json (input tokens, output tokens, total cost)
+- Model-specific pricing with support for cached tokens
+- Cost aggregation across batch operations
+- Combined cost summaries for agent + judging operations
+
 **📊 Comprehensive Logging**
 - Complete execution history in `.runs/` directories
 - Batch results automatically saved to `results/` folder
@@ -268,6 +277,8 @@ Perfect for batch analysis, model evaluation, and production data processing wor
 ✅ **Consolidated duplicate executor files** - Removed confusion from multiple versions
 ✅ **Improved directory creation** - Added robust path handling with `parents=True`
 ✅ **Enhanced error handling** - Better logging and error reporting throughout the system
+✅ **Added tiktoken cost tracking** - Real-time token counting with accurate cost calculation
+✅ **Fixed JSON serialization in agent scripts** - Added prompt guidance for numpy/pandas types
 
 ---
 

@@ -17,10 +17,11 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
+import tiktoken
 import yaml
 from dotenv import load_dotenv
 from jinja2 import Template
-from pydantic import BaseModel
+from pydantic import BaseModel, Field, ConfigDict
 from pydantic_ai import Agent, RunContext
 from pydantic_ai.models.anthropic import AnthropicModel
 from pydantic_ai.models.openai import OpenAIModel
@@ -39,6 +40,39 @@ class ToolTiming(BaseModel):
     error: Optional[str] = None
 
 
+class WriteRunArgs(BaseModel):
+    """Arguments for write_file_and_run_python tool with aliases for common parameter name variations."""
+    file_path: str = Field(..., description="Relative path to the Python file to write and execute", alias="filename")
+    content: str = Field(..., description="Python code content to write to the file")
+
+    model_config = ConfigDict(populate_by_name=True)  # Accept both file_path and filename
+
+
+class WriteRunResult(BaseModel):
+    """Structured result for write_file_and_run_python tool execution."""
+    file_path: str
+    exit_code: int
+    stdout_log: str
+    stderr_log: Optional[str] = None
+    duration_s: float
+    success: bool
+    stdout_tail: Optional[str] = None
+    stderr_tail: Optional[str] = None
+    task_id: str
+    content_length: int
+
+    def __len__(self) -> int:
+        """Return length of stdout_log for compatibility with len() calls."""
+        return len(self.stdout_log) if self.stdout_log else 0
+
+    def __str__(self) -> str:
+        """Return string representation compatible with tool result expectations."""
+        if self.success:
+            return f"Successfully executed {self.file_path} (exit code: {self.exit_code}, duration: {self.duration_s:.1f}s)"
+        else:
+            return f"Failed to execute {self.file_path} (exit code: {self.exit_code})"
+
+
 class AgentState(BaseModel):
     """State tracking for the agent run."""
     workspace_dir: Path
@@ -51,6 +85,7 @@ class AgentState(BaseModel):
     tool_timings: List[ToolTiming] = []
     total_start_time: float
     react_log_path: Optional[Path] = None
+    cost_info: Optional[Dict[str, Any]] = None
 
     def add_tool_timing(self, tool_name: str, start_time: float, end_time: float,
                        success: bool, error: Optional[str] = None):
@@ -113,6 +148,98 @@ class AgentState(BaseModel):
             "tool_breakdown": timing_by_tool,
             "individual_tool_calls": [t.model_dump() for t in self.tool_timings]
         }
+
+
+def load_pricing_data(model_name: str) -> Dict[str, Dict[str, float]]:
+    """Load pricing data from appropriate TSV file based on model type."""
+    if model_name.startswith("openai:"):
+        pricing_file = Path("config/openai_pricing.tsv")
+    else:
+        pricing_file = Path("config/anthropic_pricing.tsv")
+
+    if not pricing_file.exists():
+        raise FileNotFoundError(f"Pricing file not found: {pricing_file}")
+
+    import pandas as pd
+    df = pd.read_csv(pricing_file, sep='\t')
+
+    pricing = {}
+    for _, row in df.iterrows():
+        model_name_lower = row['Model'].lower()
+        try:
+            input_str = str(row['Input']).replace('$', '')
+            output_str = str(row['Output']).replace('$', '')
+
+            # Skip rows with missing data (represented as '-')
+            if input_str == '-' or output_str == '-':
+                continue
+
+            input_price = float(input_str)
+            output_price = float(output_str)
+            pricing[model_name_lower] = {
+                "input_per_1m": input_price,
+                "output_per_1m": output_price
+            }
+        except (ValueError, KeyError):
+            # Skip rows with invalid data
+            continue
+
+    if not pricing:
+        raise ValueError(f"No valid pricing data found in {pricing_file}")
+
+    return pricing
+
+
+def count_tokens(text: str, model: str = "gpt-4o-mini") -> int:
+    """Count tokens using tiktoken for accurate measurement."""
+    try:
+        # Map model names to tiktoken encodings
+        encoding_map = {
+            "gpt-4o-mini": "o200k_base",
+            "gpt-4o": "o200k_base",
+            "gpt-4": "cl100k_base",
+            "gpt-3.5-turbo": "cl100k_base",
+            "claude-sonnet-4-20250514": "o200k_base",  # Use OpenAI encoding for Claude
+            "claude-3-5-haiku-20241022": "o200k_base"
+        }
+
+        clean_model = model.replace("anthropic:", "").replace("openai:", "")
+        encoding_name = encoding_map.get(clean_model, "o200k_base")
+        encoding = tiktoken.get_encoding(encoding_name)
+        return len(encoding.encode(text))
+    except Exception:
+        # Fallback to rough estimation
+        return len(text) // 4
+
+
+def calculate_cost(input_tokens: int, output_tokens: int, model: str) -> Dict[str, Any]:
+    """Calculate the cost based on token usage and model pricing."""
+    clean_model = model.replace("anthropic:", "").replace("openai:", "")
+    pricing_data = load_pricing_data(model)
+
+    if clean_model not in pricing_data:
+        # Try to find a match by checking if the model name contains the key
+        found_model = None
+        for pricing_model in pricing_data.keys():
+            if pricing_model in clean_model.lower():
+                found_model = pricing_model
+                break
+
+        if not found_model:
+            raise ValueError(f"Pricing not found for model: {clean_model}")
+        clean_model = found_model
+
+    model_pricing = pricing_data[clean_model]
+    input_cost = input_tokens * model_pricing["input_per_1m"] / 1_000_000
+    output_cost = output_tokens * model_pricing["output_per_1m"] / 1_000_000
+
+    return {
+        "input_tokens": input_tokens,
+        "output_tokens": output_tokens,
+        "input_cost": input_cost,
+        "output_cost": output_cost,
+        "total_cost": input_cost + output_cost
+    }
 
 
 def console_update(ctx: RunContext[AgentState], message: str) -> str:
@@ -340,10 +467,19 @@ def list_files(ctx: RunContext[AgentState], directory: str = ".") -> str:
         return error_msg
 
 
-def write_file_and_run_python(ctx: RunContext[AgentState], file_path: str, content: str) -> str:
-    """Write a Python script file and immediately execute it. This fused operation reduces tool calls and avoids rewrites."""
+def write_file_and_run_python(ctx: RunContext[AgentState], args: WriteRunArgs) -> WriteRunResult:
+    """Write a Python script file and immediately execute it. This fused operation reduces tool calls and avoids rewrites.
+
+    Args:
+        args: WriteRunArgs containing file_path (or filename) and content
+
+    Returns:
+        WriteRunResult with structured execution details
+    """
     state = ctx.deps
     start_time = time.time()
+    file_path = args.file_path
+    content = args.content
 
     # Log tool call start
     state.log_react_event("tool_call_start", {
@@ -376,11 +512,24 @@ def write_file_and_run_python(ctx: RunContext[AgentState], file_path: str, conte
         os.chdir(state.workspace_dir)
 
         try:
+            # Use uv venv Python - no fallbacks
+            if not os.environ.get('VIRTUAL_ENV'):
+                raise RuntimeError("VIRTUAL_ENV not set - uv venv must be activated")
+
+            venv_python = os.path.join(os.environ['VIRTUAL_ENV'], 'bin', 'python')
+            if not os.path.exists(venv_python):
+                # Windows path
+                venv_python = os.path.join(os.environ['VIRTUAL_ENV'], 'Scripts', 'python.exe')
+
+            if not os.path.exists(venv_python):
+                raise RuntimeError(f"Python not found in venv: {os.environ['VIRTUAL_ENV']}")
+
             result = subprocess.run(
-                ["python", file_path],
+                [venv_python, file_path],
                 capture_output=True,
                 text=True,
-                timeout=300  # 5 minute timeout
+                timeout=300,  # 5 minute timeout
+                env=os.environ.copy()  # Pass environment variables including VIRTUAL_ENV
             )
 
             # Write stdout and stderr to separate log files
@@ -398,21 +547,21 @@ def write_file_and_run_python(ctx: RunContext[AgentState], file_path: str, conte
 
             success = result.returncode == 0
             end_time = time.time()
+            duration = end_time - start_time
 
-            # Create comprehensive output message
-            output = f"📝 File written: {file_path} ({len(content)} characters)\n"
-            output += f"🚀 Script executed: Exit code {result.returncode}\n"
-            output += f"⏱️  Execution time: {end_time - start_time:.2f}s\n"
+            # Create tail excerpts for large outputs (last 500 chars)
+            stdout_tail = None
+            stderr_tail = None
 
-            if result.stdout:
-                output += f"\n📤 STDOUT:\n{result.stdout}\n"
-            if result.stderr:
-                output += f"\n🚨 STDERR:\n{result.stderr}\n"
+            if result.stdout and len(result.stdout) > 500:
+                stdout_tail = "..." + result.stdout[-500:]
+            elif result.stdout:
+                stdout_tail = result.stdout
 
-            if success:
-                output += "✅ Script completed successfully"
-            else:
-                output += f"❌ Script failed with exit code {result.returncode}"
+            if result.stderr and len(result.stderr) > 500:
+                stderr_tail = "..." + result.stderr[-500:]
+            elif result.stderr:
+                stderr_tail = result.stderr
 
             # Log detailed script execution results
             state.log_react_event("script_execution_detailed", {
@@ -437,7 +586,7 @@ def write_file_and_run_python(ctx: RunContext[AgentState], file_path: str, conte
                 "stderr_log": str(stderr_log),
                 "stdout": result.stdout,
                 "stderr": result.stderr,
-                "duration": end_time - start_time
+                "duration": duration
             })
 
             if not success:
@@ -446,22 +595,60 @@ def write_file_and_run_python(ctx: RunContext[AgentState], file_path: str, conte
             else:
                 state.add_tool_timing("write_file_and_run_python", start_time, end_time, True)
 
-            return output
+            # Return structured result instead of text blob
+            return WriteRunResult(
+                file_path=file_path,
+                exit_code=result.returncode,
+                stdout_log=str(stdout_log),
+                stderr_log=str(stderr_log) if result.stderr else None,
+                duration_s=duration,
+                success=success,
+                stdout_tail=stdout_tail,
+                stderr_tail=stderr_tail,
+                task_id=task_id,
+                content_length=len(content)
+            )
 
         finally:
             os.chdir(original_cwd)
 
     except subprocess.TimeoutExpired:
         end_time = time.time()
+        duration = end_time - start_time
         error_msg = "Script execution timed out (5 minutes)"
         state.add_tool_timing("write_file_and_run_python", start_time, end_time, False, error_msg)
-        return f"📝 File written: {file_path}\n❌ {error_msg}"
+
+        return WriteRunResult(
+            file_path=file_path,
+            exit_code=-1,
+            stdout_log="",
+            stderr_log=None,
+            duration_s=duration,
+            success=False,
+            stdout_tail=None,
+            stderr_tail=error_msg,
+            task_id="timeout",
+            content_length=len(content)
+        )
 
     except Exception as e:
         end_time = time.time()
+        duration = end_time - start_time
         error_msg = f"Error in write_file_and_run_python: {str(e)}"
         state.add_tool_timing("write_file_and_run_python", start_time, end_time, False, error_msg)
-        return f"❌ {error_msg}"
+
+        return WriteRunResult(
+            file_path=file_path,
+            exit_code=-1,
+            stdout_log="",
+            stderr_log=None,
+            duration_s=duration,
+            success=False,
+            stdout_tail=None,
+            stderr_tail=error_msg,
+            task_id="error",
+            content_length=len(content)
+        )
 
 
 def create_agent(model_name: str, template_content: str) -> Agent:
@@ -743,6 +930,55 @@ def main():
             logger = ReActStepLogger(state)
             logger.log_complete_conversation_flow(all_messages)
 
+            # Calculate token usage and costs from conversation messages
+            total_input_tokens = 0
+            total_output_tokens = 0
+            model_name = args.model
+
+            for i, message in enumerate(all_messages):
+                # First, try to get usage information directly from PydanticAI
+                if hasattr(message, 'usage') and message.usage:
+                    usage = message.usage
+                    if hasattr(usage, 'input_tokens'):
+                        total_input_tokens += getattr(usage, 'input_tokens', 0)
+                    if hasattr(usage, 'output_tokens'):
+                        total_output_tokens += getattr(usage, 'output_tokens', 0)
+                    continue
+
+                # Fallback to manual token counting for message parts
+                if hasattr(message, 'parts'):
+                    # ModelRequest or ModelResponse with parts
+                    for part in message.parts:
+                        part_text = ""
+                        if hasattr(part, 'content'):
+                            part_text = str(part.content)
+                        else:
+                            part_text = str(part)
+
+                        if part_text.strip() and len(part_text) < 50000:  # Reasonable text length
+                            tokens = count_tokens(part_text, model_name)
+
+                            # Classify based on message type and part type
+                            if 'ModelRequest' in str(type(message)):
+                                total_input_tokens += tokens
+                            elif 'ModelResponse' in str(type(message)):
+                                total_output_tokens += tokens
+                            else:
+                                total_input_tokens += tokens  # Default to input
+
+            # Calculate cost based on token usage
+            cost_info = calculate_cost(total_input_tokens, total_output_tokens, model_name)
+
+            # Store cost information in state for later retrieval
+            state.cost_info = {
+                'model': model_name,
+                'input_tokens': total_input_tokens,
+                'output_tokens': total_output_tokens,
+                'total_tokens': total_input_tokens + total_output_tokens,
+                'total_cost': cost_info['total_cost'],
+                'cost_breakdown': cost_info
+            }
+
             # Log final execution summary
             state.log_react_event("agent_execution_complete", {
                 "final_result": str(result),
@@ -765,11 +1001,37 @@ def main():
                 json.dump(conversation_log, f, indent=2, default=str)
 
         except Exception as e:
-            state.log_react_event("agent_execution_complete", {
+            # Enhanced error logging to capture exact failure details
+            error_details = {
                 "error": str(e),
+                "error_type": type(e).__name__,
                 "success": False,
-                "timestamp": datetime.now().isoformat()
-            })
+                "timestamp": datetime.now().isoformat(),
+                "traceback": str(e.__traceback__) if hasattr(e, '__traceback__') else None
+            }
+
+            # Add PydanticAI specific error details if available
+            if hasattr(e, 'args') and e.args:
+                error_details["error_args"] = list(e.args)
+
+            # Check if this is a tool retry error
+            if "exceeded max retries" in str(e):
+                error_details["failure_type"] = "tool_retry_limit_exceeded"
+                error_details["retry_analysis"] = {
+                    "tool_in_question": "write_file_and_run_python",
+                    "likely_cause": "second_tool_execution_failed"
+                }
+
+            state.log_react_event("agent_execution_complete", error_details)
+
+            # Also write detailed error to a separate file for investigation
+            error_log_file = state.workspace_dir / "detailed_error_log.json"
+            try:
+                with open(error_log_file, 'w', encoding='utf-8') as f:
+                    json.dump(error_details, f, indent=2, default=str)
+            except Exception:
+                pass  # Don't fail on error log writing
+
             raise
 
         # Agent MUST create response.json - no fallbacks
@@ -825,6 +1087,10 @@ def main():
             "success": True,
             "timing_summary": timing_summary
         }
+
+        # Add cost information if available
+        if hasattr(state, 'cost_info') and state.cost_info:
+            metadata["cost_info"] = state.cost_info
         metadata_file = workspace_dir / "metadata.json"
         with open(metadata_file, 'w') as f:
             json.dump(metadata, f, indent=2, default=str)
@@ -851,16 +1117,58 @@ def main():
                   f"{tool_stats['successful_calls']} success, "
                   f"{tool_stats['failed_calls']} failed")
 
+        # Print cost information if available
+        if hasattr(state, 'cost_info') and state.cost_info:
+            cost_info = state.cost_info
+            print(f"\n💰 COST BREAKDOWN:")
+            print(f"  Model: {cost_info.get('model', 'unknown')}")
+            print(f"  Input tokens: {cost_info['input_tokens']:,}")
+            print(f"  Output tokens: {cost_info['output_tokens']:,}")
+            print(f"  Total tokens: {cost_info['total_tokens']:,}")
+            print(f"  Total cost: ${cost_info['total_cost']:.4f}")
+
         return 0
 
     except Exception as e:
         print(f"\n❌ Agent execution failed: {str(e)}")
+        print(f"   Error type: {type(e).__name__}")
+
+        # Enhanced error details for debugging
+        if "exceeded max retries" in str(e):
+            print(f"   🔍 RETRY LIMIT ERROR: This indicates a tool execution failed and hit PydanticAI's retry limit")
+            print(f"   📊 Tool executions so far: {len(state.tool_timings)}")
+            print(f"   🛠️  Last successful tool: {state.tool_timings[-1].tool_name if state.tool_timings else 'None'}")
 
         # Still save partial timing information
         timing_summary = state.get_timing_summary()
         timing_file = workspace_dir / "timing_breakdown.json"
         with open(timing_file, 'w') as f:
             json.dump(timing_summary, f, indent=2, default=str)
+
+        # Save comprehensive error details for debugging
+        error_debug = {
+            "error_message": str(e),
+            "error_type": type(e).__name__,
+            "timestamp": datetime.now().isoformat(),
+            "tool_execution_count": len(state.tool_timings),
+            "tool_timings": [{"tool": t.tool_name, "success": t.success, "duration": t.duration} for t in state.tool_timings],
+            "workspace_files": []
+        }
+
+        # List files created so far
+        try:
+            for file_path in workspace_dir.rglob("*"):
+                if file_path.is_file():
+                    error_debug["workspace_files"].append(str(file_path.relative_to(workspace_dir)))
+        except Exception:
+            pass
+
+        error_debug_file = workspace_dir / "execution_failure_debug.json"
+        try:
+            with open(error_debug_file, 'w') as f:
+                json.dump(error_debug, f, indent=2, default=str)
+        except Exception:
+            pass
 
         return 1
 

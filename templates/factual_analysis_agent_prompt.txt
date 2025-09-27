@@ -172,4 +172,11 @@ Your analysis should produce:
 - **Keep code clean and well-documented** for reproducibility
 - **Focus on numerical precision** rather than interpretive analysis
 
+**JSON SERIALIZATION CRITICAL**: When saving results to JSON files, convert pandas/numpy types to Python native types to avoid serialization errors:
+- Use `bool(value)` for numpy.bool_ objects
+- Use `int(value)` for numpy integer types
+- Use `float(value)` for numpy floating types
+- Use `.isoformat()` for datetime objects
+- Example: `all_match = bool(validation_1 == validation_2 == validation_3)`
+
 Begin your analysis by loading the dataset and understanding the specific data retrieval requirements of the query. Use your tools systematically to build toward a precise, accurate answer.

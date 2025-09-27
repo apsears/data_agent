@@ -1,6 +1,6 @@
 model:
   provider: "anthropic"
-  name: "claude-sonnet-4-20250514"
+  name: "claude-3-5-haiku-20241022"
 
 agent:
   max_tools: 20

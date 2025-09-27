@@ -215,6 +215,7 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
 
         # Load detailed timing information if available
         detailed_timing = None
+        cost_info = None
         if run_directory:
             timing_file = Path(run_directory) / "timing_breakdown.json"
             if timing_file.exists():
@@ -224,7 +225,17 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
                 except (json.JSONDecodeError, IOError):
                     pass  # Timing file exists but couldn't be loaded
 
-        return {
+            # Load cost information from metadata.json if available
+            metadata_file = Path(run_directory) / "metadata.json"
+            if metadata_file.exists():
+                try:
+                    with open(metadata_file, 'r') as f:
+                        metadata = json.load(f)
+                        cost_info = metadata.get("cost_info")
+                except (json.JSONDecodeError, IOError):
+                    pass  # Metadata file exists but couldn't be loaded
+
+        result = {
             "query_id": query["id"],
             "query": query["query"],
             "category": query["category"],
@@ -237,6 +248,12 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
             "stderr": "",  # merged into stdout
             "return_code": proc.returncode or 0,
         }
+
+        # Add cost information if available
+        if cost_info:
+            result["cost_info"] = cost_info
+
+        return result
 
     except subprocess.TimeoutExpired:
         return {
@@ -378,25 +395,29 @@ def _call_judging_llm(judging_prompt: str, judging_model: str) -> tuple[str, int
     }
 
     if judging_model.startswith("anthropic:"):
-        client = anthropic.Anthropic()
-        model_name = judging_model.replace("anthropic:", "")
-        response = client.messages.create(
-            model=model_name,
-            max_tokens=2000,
-            messages=[{"role": "user", "content": judging_prompt}],
-            tools=[{
-                "name": "judge_result",
-                "description": "Structured judging result with accuracy score and detailed evaluation",
-                "input_schema": json_schema["schema"]
-            }],
-            tool_choice={"type": "tool", "name": "judge_result"}
-        )
-        # Extract structured output from tool use
-        tool_use = response.content[0]
-        if hasattr(tool_use, 'input'):
-            return json.dumps(tool_use.input), response.usage.output_tokens
-        else:
-            return response.content[0].text, response.usage.output_tokens
+        try:
+            client = anthropic.Anthropic()
+            model_name = judging_model.replace("anthropic:", "")
+            response = client.messages.create(
+                model=model_name,
+                max_tokens=2000,
+                messages=[{"role": "user", "content": judging_prompt}],
+                tools=[{
+                    "name": "judge_result",
+                    "description": "Structured judging result with accuracy score and detailed evaluation",
+                    "input_schema": json_schema["schema"]
+                }],
+                tool_choice={"type": "tool", "name": "judge_result"}
+            )
+            # Extract structured output from tool use
+            tool_use = response.content[0]
+            if hasattr(tool_use, 'input'):
+                # tool_use.input is already a dictionary, no need to serialize
+                return tool_use.input, response.usage.output_tokens
+            else:
+                return response.content[0].text, response.usage.output_tokens
+        except Exception as e:
+            raise
 
     elif judging_model.startswith("openai:"):
         client = openai.OpenAI()
@@ -417,13 +438,18 @@ def _call_judging_llm(judging_prompt: str, judging_model: str) -> tuple[str, int
         raise ValueError(f"Unsupported judging model provider: {judging_model}")
 
 
-def _parse_judging_response(judge_response: str) -> Dict[str, Any]:
+def _parse_judging_response(judge_response) -> Dict[str, Any]:
     """Parse JSON from structured judging response."""
-    # With structured output, response should be clean JSON
-    try:
-        return json.loads(judge_response)
-    except json.JSONDecodeError:
-        # Fallback for any edge cases
+    # Handle both dictionary (API) and string (legacy) responses
+    if isinstance(judge_response, dict):
+        return judge_response
+    elif isinstance(judge_response, str):
+        try:
+            return json.loads(judge_response)
+        except json.JSONDecodeError:
+            # Fallback for any edge cases
+            return {}
+    else:
         return {}
 
 
@@ -448,6 +474,7 @@ def _calculate_judging_cost(input_tokens: int, output_tokens: int, judging_model
 
 def judge_single_result(result: Dict[str, Any], query_data: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
     """Judge a single query result using LLM evaluation with rubric-based assessment."""
+
     # Early exit if query failed
     if not result["success"]:
         return {
@@ -518,6 +545,7 @@ def judge_single_result(result: Dict[str, Any], query_data: Dict[str, Any], conf
         judge_response, output_tokens = _call_judging_llm(judging_prompt, judging_model)
         judging_time = time.time() - start_time
 
+
         # Parse response and calculate costs
         judging_data = _parse_judging_response(judge_response)
         judging_cost = _calculate_judging_cost(input_tokens, output_tokens, judging_model)
@@ -534,7 +562,7 @@ def judge_single_result(result: Dict[str, Any], query_data: Dict[str, Any], conf
             "completeness_check": judging_data.get("completeness_check", ""),
             "confidence": judging_data.get("confidence", 0.0),
             "judging_cost": judging_cost,
-            "raw_judging_output": judge_response
+            "raw_judging_output": str(judge_response)  # Ensure this is always a string
         }
 
     except Exception as e:
@@ -592,6 +620,21 @@ def save_results(results: List[Dict[str, Any]], output_file: str):
         "results": results
     }
 
+    # Add agent cost summary if any results have cost info
+    results_with_cost = [r for r in results if r.get("cost_info")]
+    if results_with_cost:
+        total_agent_cost = sum(r["cost_info"]["total_cost"] for r in results_with_cost)
+        total_input_tokens = sum(r["cost_info"]["input_tokens"] for r in results_with_cost)
+        total_output_tokens = sum(r["cost_info"]["output_tokens"] for r in results_with_cost)
+        batch_summary["agent_cost_summary"] = {
+            "total_queries_with_cost": len(results_with_cost),
+            "total_agent_cost": total_agent_cost,
+            "total_input_tokens": total_input_tokens,
+            "total_output_tokens": total_output_tokens,
+            "total_tokens": total_input_tokens + total_output_tokens,
+            "avg_cost_per_query": total_agent_cost / len(results_with_cost)
+        }
+
     # Add judging summary if any results were judged
     judged_results = [r for r in results if r.get("judging", {}).get("judging_performed", False)]
     if judged_results:
@@ -604,6 +647,16 @@ def save_results(results: List[Dict[str, Any]], output_file: str):
             "total_judging_cost": total_judging_cost,
             "total_input_tokens": sum(r["judging"]["judging_cost"]["input_tokens"] for r in judged_results),
             "total_output_tokens": sum(r["judging"]["judging_cost"]["output_tokens"] for r in judged_results)
+        }
+
+    # Add combined cost summary if both agent and judging costs are available
+    if results_with_cost and judged_results:
+        total_combined_cost = (batch_summary["agent_cost_summary"]["total_agent_cost"] +
+                             batch_summary["judging_summary"]["total_judging_cost"])
+        batch_summary["total_cost_summary"] = {
+            "total_agent_cost": batch_summary["agent_cost_summary"]["total_agent_cost"],
+            "total_judging_cost": batch_summary["judging_summary"]["total_judging_cost"],
+            "total_combined_cost": total_combined_cost
         }
 
     with open(output_file, 'w') as f:
