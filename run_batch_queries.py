@@ -91,6 +91,26 @@ def count_tokens(text: str, model: str = "gpt-4o-mini") -> int:
         return len(text) // 4
 
 
+def select_template_for_query(query: Dict[str, Any], default_template: str) -> str:
+    """Select appropriate template based on query analysis type."""
+    analysis_type = query.get("analysis_type", "data_analysis")
+
+    template_map = {
+        "factual": "templates/factual_analysis_agent_prompt.txt",
+        "pattern": "templates/pattern_analysis_agent_prompt.txt",
+        "causal": "templates/causal_analysis_agent_prompt.txt"
+    }
+
+    selected_template = template_map.get(analysis_type, default_template)
+
+    # Verify template exists, fallback to default if not
+    if not Path(selected_template).exists():
+        print(f"[WARNING] Template {selected_template} not found, using default: {default_template}")
+        return default_template
+
+    return selected_template
+
+
 def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool = True, worker_id: int = 0) -> Dict[str, Any]:
     """Run a single query using run_agent.py and capture results.
 
@@ -103,12 +123,31 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
     print(f"{worker_prefix}Query: {query['query']}")
     print(f"{'='*60}")
 
+    # Select appropriate template based on analysis type
+    selected_template = None
+    modified_args = []
+    for i, arg in enumerate(base_args):
+        if arg == "--template" and i + 1 < len(base_args):
+            default_template = base_args[i + 1]
+            selected_template = select_template_for_query(query, default_template)
+            modified_args.extend(["--template", selected_template])
+            # Skip the next argument since we handled it
+            continue
+        elif i > 0 and base_args[i - 1] == "--template":
+            # Skip this argument since it was handled above
+            continue
+        else:
+            modified_args.append(arg)
+
+    if selected_template:
+        print(f"{worker_prefix}Using template: {selected_template}")
+
     # Build command
     cmd = [
-        sys.executable, "-u", "run_agent.py.bak",  # -u ensures unbuffered child output for live streaming
+        sys.executable, "-u", "pydantic_agent_executor.py",  # -u ensures unbuffered child output for live streaming
         "--task", query["query"],
         "--query-id", query["id"],
-        *base_args
+        *modified_args
     ]
 
     start_time = time.time()
@@ -174,12 +213,24 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
                 run_directory = line.split("Run directory:")[-1].strip()
                 break
 
+        # Load detailed timing information if available
+        detailed_timing = None
+        if run_directory:
+            timing_file = Path(run_directory) / "timing_breakdown.json"
+            if timing_file.exists():
+                try:
+                    with open(timing_file, 'r') as f:
+                        detailed_timing = json.load(f)
+                except (json.JSONDecodeError, IOError):
+                    pass  # Timing file exists but couldn't be loaded
+
         return {
             "query_id": query["id"],
             "query": query["query"],
             "category": query["category"],
             "success": (proc.returncode or 0) == 0,
             "execution_time": execution_time,
+            "detailed_timing": detailed_timing,
             "final_answer": final_answer,
             "run_directory": run_directory,
             "stdout": full_stdout,
@@ -213,9 +264,28 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
         }
 
 
+def _load_rubric(analysis_type: str) -> Dict[str, Any]:
+    """Load evaluation rubric for the specified analysis type."""
+    rubric_path = Path(f"config/rubrics/{analysis_type}_analysis_rubric.yaml")
+    if not rubric_path.exists():
+        # Fallback to factual rubric if specific one doesn't exist
+        rubric_path = Path("config/rubrics/factual_analysis_rubric.yaml")
+        if not rubric_path.exists():
+            raise FileNotFoundError(f"No rubric found for {analysis_type} analysis")
+
+    with open(rubric_path, 'r') as f:
+        return yaml.safe_load(f)
+
+
 def _load_judging_template(config: Dict[str, Any]) -> Template:
     """Load and parse the judging template."""
-    template_path = Path(config["judging"]["template"])
+    # Use rubric-based template if available, fall back to original
+    rubric_template_path = Path("templates/rubric_based_judge_prompt.txt")
+    if rubric_template_path.exists():
+        template_path = rubric_template_path
+    else:
+        template_path = Path(config["judging"]["template"])
+
     if not template_path.exists():
         raise FileNotFoundError(f"Judging template not found: {template_path}")
     return Template(template_path.read_text(encoding="utf-8"))
@@ -352,7 +422,7 @@ def _calculate_judging_cost(input_tokens: int, output_tokens: int, judging_model
 
 
 def judge_single_result(result: Dict[str, Any], query_data: Dict[str, Any], config: Dict[str, Any]) -> Dict[str, Any]:
-    """Judge a single query result using LLM evaluation."""
+    """Judge a single query result using LLM evaluation with rubric-based assessment."""
     # Early exit if query failed
     if not result["success"]:
         return {
@@ -367,11 +437,45 @@ def judge_single_result(result: Dict[str, Any], query_data: Dict[str, Any], conf
         template = _load_judging_template(config)
         actual_answer = _extract_actual_answer(result)
 
-        # Render judging prompt
+        # Determine analysis type and load appropriate rubric
+        analysis_type = query_data.get("analysis_type", "factual")
+        rubric = _load_rubric(analysis_type)
+
+        # Prepare rubric content for template
+        rubric_content = f"""
+# {rubric['name']}
+
+**Description**: {rubric['description']}
+
+## Scoring Scale:
+"""
+        for scale_item in rubric['scoring_scale']:
+            rubric_content += f"- **{scale_item['score']}** ({scale_item['label']}): {scale_item['description']}\n"
+
+        rubric_content += "\n## Evaluation Criteria:\n"
+        for criterion_name, criterion_data in rubric['evaluation_criteria'].items():
+            rubric_content += f"\n### {criterion_name.replace('_', ' ').title()} (Weight: {criterion_data['weight']})\n"
+            rubric_content += f"{criterion_data['description']}\n\n"
+            rubric_content += "**Scoring Guidelines:**\n"
+            for score, guideline in criterion_data['scoring_guidelines'].items():
+                rubric_content += f"- **{score}**: {guideline}\n"
+
+        rubric_content += f"\n## Red Flags:\n"
+        for flag in rubric['red_flags']:
+            rubric_content += f"- {flag}\n"
+
+        rubric_content += f"\n## Strengths to Recognize:\n"
+        for strength in rubric['strengths_to_recognize']:
+            rubric_content += f"- {strength}\n"
+
+        # Render judging prompt with rubric
         judging_prompt = template.render(
             query=query_data["query"],
             expected_answer=query_data.get("expected_answer", "No reference answer provided"),
-            actual_answer=actual_answer
+            actual_answer=actual_answer,
+            analysis_type=analysis_type,
+            rubric_content=rubric_content,
+            rubric_criteria=rubric['evaluation_criteria']
         )
 
         # Calculate input tokens and make API call
@@ -410,12 +514,48 @@ def judge_single_result(result: Dict[str, Any], query_data: Dict[str, Any], conf
 
 def save_results(results: List[Dict[str, Any]], output_file: str):
     """Save batch results to JSON file."""
+    successful_results = [r for r in results if r["success"]]
+
+    # Calculate timing aggregates
+    timing_summary = None
+    if successful_results:
+        total_tool_time = 0
+        total_thinking_time = 0
+        tool_breakdown = {}
+
+        results_with_timing = [r for r in successful_results if r.get("detailed_timing")]
+
+        for result in results_with_timing:
+            dt = result["detailed_timing"]
+            total_tool_time += dt.get("total_tool_time", 0)
+            total_thinking_time += dt.get("thinking_time", 0)
+
+            for tool_name, tool_stats in dt.get("tool_breakdown", {}).items():
+                if tool_name not in tool_breakdown:
+                    tool_breakdown[tool_name] = {"count": 0, "total_duration": 0, "successes": 0, "failures": 0}
+
+                tool_breakdown[tool_name]["count"] += tool_stats["count"]
+                tool_breakdown[tool_name]["total_duration"] += tool_stats["total_duration"]
+                tool_breakdown[tool_name]["successes"] += tool_stats["successful_calls"]
+                tool_breakdown[tool_name]["failures"] += tool_stats["failed_calls"]
+
+        if results_with_timing:
+            timing_summary = {
+                "queries_with_detailed_timing": len(results_with_timing),
+                "total_tool_time": total_tool_time,
+                "total_thinking_time": total_thinking_time,
+                "avg_tool_time_per_query": total_tool_time / len(results_with_timing),
+                "avg_thinking_time_per_query": total_thinking_time / len(results_with_timing),
+                "tool_breakdown": tool_breakdown
+            }
+
     batch_summary = {
         "timestamp": datetime.now().isoformat(),
         "total_queries": len(results),
-        "successful_queries": len([r for r in results if r["success"]]),
+        "successful_queries": len(successful_results),
         "failed_queries": len([r for r in results if not r["success"]]),
         "total_execution_time": sum(r["execution_time"] for r in results),
+        "timing_summary": timing_summary,
         "results": results
     }
 
@@ -545,7 +685,37 @@ def print_summary(results: List[Dict[str, Any]], total_time: float, workers: int
                 score = r["judging"]["accuracy_score"]
                 cost = r["judging"]["judging_cost"]["total_cost"]
                 judge_info = f" | Score: {score}/5 | Cost: ${cost:.4f}"
-            print(f"  {r['query_id']}: {r['category']} ({r['execution_time']:.1f}s){judge_info}")
+
+            # Add detailed timing if available
+            timing_info = ""
+            if r.get("detailed_timing"):
+                dt = r["detailed_timing"]
+                tool_time = dt.get("total_tool_time", 0)
+                thinking_time = dt.get("thinking_time", 0)
+                efficiency = dt.get("tool_efficiency", 0)
+                timing_info = f" | Tools: {tool_time:.1f}s | Think: {thinking_time:.1f}s | Eff: {efficiency:.1%}"
+
+            print(f"  {r['query_id']}: {r['category']} ({r['execution_time']:.1f}s){timing_info}{judge_info}")
+
+        # Show detailed tool breakdown for successful queries
+        print(f"\n🔧 TOOL USAGE BREAKDOWN:")
+        tool_aggregates = {}
+        for r in successful:
+            if r.get("detailed_timing", {}).get("tool_breakdown"):
+                for tool_name, tool_stats in r["detailed_timing"]["tool_breakdown"].items():
+                    if tool_name not in tool_aggregates:
+                        tool_aggregates[tool_name] = {"count": 0, "total_duration": 0, "successes": 0, "failures": 0}
+
+                    tool_aggregates[tool_name]["count"] += tool_stats["count"]
+                    tool_aggregates[tool_name]["total_duration"] += tool_stats["total_duration"]
+                    tool_aggregates[tool_name]["successes"] += tool_stats["successful_calls"]
+                    tool_aggregates[tool_name]["failures"] += tool_stats["failed_calls"]
+
+        for tool_name, stats in tool_aggregates.items():
+            avg_duration = stats["total_duration"] / stats["count"] if stats["count"] > 0 else 0
+            success_rate = stats["successes"] / (stats["successes"] + stats["failures"]) if (stats["successes"] + stats["failures"]) > 0 else 0
+            print(f"  {tool_name}: {stats['count']} calls, {stats['total_duration']:.2f}s total, "
+                  f"{avg_duration:.2f}s avg, {success_rate:.1%} success rate")
 
     if failed:
         print(f"\n❌ FAILED QUERIES:")

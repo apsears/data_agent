@@ -1,0 +1,95 @@
+name: "Pattern Analysis Evaluation Rubric"
+description: "Evaluation criteria for trend identification, correlation analysis, and pattern discovery"
+analysis_type: "pattern"
+
+scoring_scale:
+  - score: 5
+    label: "Excellent"
+    description: "Identifies meaningful patterns with strong statistical support"
+  - score: 4
+    label: "Good"
+    description: "Finds relevant patterns with mostly sound analysis"
+  - score: 3
+    label: "Satisfactory"
+    description: "Identifies some patterns but with limited depth or rigor"
+  - score: 2
+    label: "Poor"
+    description: "Weak pattern identification with questionable methodology"
+  - score: 1
+    label: "Very Poor"
+    description: "No meaningful patterns identified or spurious correlations"
+  - score: 0
+    label: "No Answer"
+    description: "No pattern analysis provided"
+
+evaluation_criteria:
+  pattern_identification:
+    weight: 0.30
+    description: "Quality and relevance of patterns discovered"
+    scoring_guidelines:
+      5: "Identifies multiple meaningful, well-supported patterns"
+      4: "Finds relevant patterns with good supporting evidence"
+      3: "Identifies some patterns but with limited significance"
+      2: "Weak patterns or over-interpretation of noise"
+      1: "Spurious patterns or misinterpretation of data"
+      0: "No patterns identified or completely incorrect claims"
+
+  statistical_validation:
+    weight: 0.25
+    description: "Use of appropriate statistical methods to validate patterns"
+    scoring_guidelines:
+      5: "Excellent use of statistical tests, confidence intervals, significance testing"
+      4: "Good statistical validation with minor omissions"
+      3: "Some statistical support but incomplete validation"
+      2: "Limited statistical rigor, mostly descriptive"
+      1: "Poor or inappropriate statistical methods"
+      0: "No statistical validation provided"
+
+  visualization_quality:
+    weight: 0.20
+    description: "Effectiveness of charts and graphs in illustrating patterns"
+    scoring_guidelines:
+      5: "Clear, informative visualizations that strongly support findings"
+      4: "Good visualizations with minor presentation issues"
+      3: "Adequate visualizations that show main patterns"
+      2: "Basic visualizations with some clarity issues"
+      1: "Poor visualizations that don't support claims"
+      0: "No visualizations or misleading charts"
+
+  business_interpretation:
+    weight: 0.15
+    description: "Translation of patterns into actionable business insights"
+    scoring_guidelines:
+      5: "Excellent business context and actionable implications"
+      4: "Good business interpretation with clear relevance"
+      3: "Some business context but limited practical application"
+      2: "Weak connection between patterns and business value"
+      1: "Little to no business interpretation"
+      0: "No business context provided"
+
+  methodology_soundness:
+    weight: 0.10
+    description: "Appropriateness of analytical approach for pattern detection"
+    scoring_guidelines:
+      5: "Optimal choice of analytical methods for the data and question"
+      4: "Good methodology with sound analytical choices"
+      3: "Reasonable approach with some suboptimal choices"
+      2: "Flawed methodology but reaches some valid conclusions"
+      1: "Poor analytical approach with significant issues"
+      0: "No coherent analytical methodology"
+
+red_flags:
+  - "Confuses correlation with causation without acknowledgment"
+  - "Claims statistical significance without proper testing"
+  - "Over-interprets random variation as meaningful patterns"
+  - "Cherry-picks time periods or subsets to support claims"
+  - "Ignores obvious confounding factors"
+  - "Presents patterns without quantifying strength or reliability"
+
+strengths_to_recognize:
+  - "Distinguishes between different types of patterns (seasonal, trend, cyclical)"
+  - "Quantifies pattern strength with appropriate metrics"
+  - "Considers alternative explanations for observed patterns"
+  - "Validates patterns across different time periods or subgroups"
+  - "Acknowledges limitations and uncertainty in pattern detection"
+  - "Connects patterns to broader industry or economic context"

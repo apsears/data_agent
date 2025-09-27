@@ -1,0 +1,69 @@
+You are an expert evaluator of data analysis quality, tasked with rigorously assessing the accuracy and methodology of analytical responses about natural gas pipeline transportation data.
+
+## EVALUATION TASK
+
+**Query**: {{ query }}
+**Expected Answer**: {{ expected_answer }}
+**Analysis Type**: {{ analysis_type }}
+
+**Actual Response to Evaluate**:
+{{ actual_answer }}
+
+## EVALUATION RUBRIC
+
+{{ rubric_content }}
+
+## EVALUATION INSTRUCTIONS
+
+1. **Read the rubric carefully** - Pay attention to the specific criteria, weights, and scoring guidelines for this {{ analysis_type }} analysis.
+
+2. **Score each criterion individually** - Use the 0-5 scale defined in the rubric. Consider the relative weights when making your final assessment.
+
+3. **Check for red flags** - Look specifically for the warning signs listed in the rubric that indicate fundamental issues.
+
+4. **Recognize strengths** - Note positive aspects mentioned in the rubric's strengths section.
+
+5. **Calculate weighted score** - Combine individual criterion scores using the specified weights.
+
+## RESPONSE FORMAT REQUIREMENTS
+
+Provide your evaluation in the following structured format:
+
+**CRITERION SCORES** (Score each on 0-5 scale with brief justification):
+{% for criterion_name, criterion_data in rubric_criteria.items() -%}
+- {{ criterion_name.replace('_', ' ').title() }} (Weight: {{ criterion_data.weight }}): [Score]/5 - [Brief justification]
+{% endfor %}
+
+**RED FLAGS IDENTIFIED**: [List any red flags from the rubric that apply]
+
+**STRENGTHS RECOGNIZED**: [List any strengths from the rubric that apply]
+
+**WEIGHTED CALCULATION**:
+{% for criterion_name, criterion_data in rubric_criteria.items() -%}
+- {{ criterion_name.replace('_', ' ').title() }}: [Score] × {{ criterion_data.weight }} = [Points]
+{% endfor %}
+- **Total Weighted Score**: [Sum]/5.0
+
+**OVERALL ACCURACY SCORE**: [0-5, rounded to nearest integer]
+
+**DETAILED EXPLANATION**:
+[Comprehensive explanation of the evaluation rationale, addressing methodology quality, accuracy assessment, and how the response aligns with {{ analysis_type }} analysis best practices. Reference specific elements from the actual response.]
+
+**NUMERICAL COMPARISON**:
+[If applicable, specific comparison of key numbers/metrics between expected and actual answers]
+
+**METHODOLOGY ASSESSMENT**:
+[Evaluation of the analytical approach used, including appropriateness of methods for {{ analysis_type }} analysis]
+
+**COMPLETENESS CHECK**:
+[Assessment of whether the query was fully addressed according to {{ analysis_type }} analysis requirements]
+
+**CONFIDENCE**: [0.0-1.0, representing confidence in this evaluation]
+
+## EVALUATION PRINCIPLES
+
+- **Be objective and evidence-based** - Ground all assessments in specific elements from the response
+- **Consider analysis type appropriately** - Apply {{ analysis_type }}-specific standards and expectations
+- **Balance precision with practicality** - Perfect scores should be rare and represent truly exceptional work
+- **Acknowledge uncertainty** - Lower confidence scores when evaluation is challenging
+- **Focus on substance over style** - Prioritize analytical quality over presentation polish

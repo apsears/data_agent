@@ -1,0 +1,82 @@
+name: "Factual Analysis Evaluation Rubric"
+description: "Evaluation criteria for factual data retrieval and computational accuracy"
+analysis_type: "factual"
+
+scoring_scale:
+  - score: 5
+    label: "Excellent"
+    description: "Completely accurate answer with correct methodology"
+  - score: 4
+    label: "Good"
+    description: "Mostly accurate with minor issues in precision or completeness"
+  - score: 3
+    label: "Satisfactory"
+    description: "Correct general approach but some accuracy issues"
+  - score: 2
+    label: "Poor"
+    description: "Incorrect answer but some valid analysis elements"
+  - score: 1
+    label: "Very Poor"
+    description: "Fundamentally incorrect approach and answer"
+  - score: 0
+    label: "No Answer"
+    description: "No meaningful analysis provided"
+
+evaluation_criteria:
+  numerical_accuracy:
+    weight: 0.40
+    description: "Accuracy of numerical calculations and data retrieval"
+    scoring_guidelines:
+      5: "Exact match with expected numerical result"
+      4: "Within 5% of expected result or minor unit/formatting differences"
+      3: "Within 15% of expected result or correct order of magnitude"
+      2: "Significant error but correct general approach to calculation"
+      1: "Major numerical error or wrong calculation method"
+      0: "No numerical result provided or completely incorrect"
+
+  methodology_correctness:
+    weight: 0.25
+    description: "Appropriateness of data filtering, aggregation, and processing methods"
+    scoring_guidelines:
+      5: "Perfect methodology with appropriate filters and aggregations"
+      4: "Correct methodology with minor inefficiencies"
+      3: "Generally correct approach with some suboptimal choices"
+      2: "Flawed methodology but reaches reasonable conclusion"
+      1: "Incorrect methodology but shows understanding of data"
+      0: "No coherent methodology demonstrated"
+
+  data_quality_handling:
+    weight: 0.15
+    description: "Recognition and appropriate handling of data quality issues"
+    scoring_guidelines:
+      5: "Identifies and properly handles missing data, outliers, and quality issues"
+      4: "Mostly good data quality awareness with minor oversights"
+      3: "Some recognition of data quality issues"
+      2: "Limited awareness of data quality concerns"
+      1: "Poor handling of data quality issues"
+      0: "No consideration of data quality"
+
+  completeness:
+    weight: 0.20
+    description: "Completeness of answer relative to question requirements"
+    scoring_guidelines:
+      5: "Fully addresses all aspects of the question with appropriate detail"
+      4: "Addresses main question with minor omissions"
+      3: "Covers most important aspects of the question"
+      2: "Partial answer with significant gaps"
+      1: "Minimal answer that barely addresses the question"
+      0: "Does not answer the question asked"
+
+red_flags:
+  - "Uses synthetic or estimated data instead of actual dataset values"
+  - "Presents approximations as exact facts"
+  - "Ignores clear data quality issues without acknowledgment"
+  - "Provides no supporting evidence for numerical claims"
+  - "Mathematical errors in basic arithmetic or aggregation"
+
+strengths_to_recognize:
+  - "Validates results through multiple approaches"
+  - "Clearly documents data processing steps"
+  - "Acknowledges limitations and uncertainty appropriately"
+  - "Provides appropriate units and context"
+  - "Shows evidence of data exploration and understanding"

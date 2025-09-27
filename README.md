@@ -108,6 +108,11 @@ Each agent run follows this pattern:
 - ✅ **Budget Controls**: Configurable tool call limits and timeouts
 - ✅ **Real-time Progress**: Console messages and worker tracking
 - ✅ **Automated Quality Assessment**: LLM judging with accuracy scoring
+- ✅ **Optimized Tool Calls**: Fused write_file_and_run_python tool reduces overhead
+- ✅ **Structured Response Format**: Mandatory response.json with rubric compliance
+- ✅ **No-Fallback Design**: Fail-fast approach for reliable error detection
+- ✅ **Production Ready**: Recent fixes ensure reliable script execution and logging
+- ✅ **Data Analysis Capabilities**: Successfully analyzes multi-GB datasets with comprehensive results
 
 ---
 
@@ -231,6 +236,36 @@ python run_batch_queries.py queries.json \
 | Parallel (`--workers 5`) | ~300s | ~60s | **5x** |
 
 Perfect for batch analysis, model evaluation, and production data processing workflows.
+
+---
+
+## 🔧 Troubleshooting
+
+### Common Issues and Solutions
+
+**🔴 Script Execution Errors**
+- **Issue**: `[Errno 2] No such file or directory` when running scripts
+- **Solution**: Fixed in v2025.09.27 - ensure you have the latest version with proper directory creation
+
+**🔴 JSON Serialization Errors**
+- **Issue**: `Object of type datetime is not JSON serializable`
+- **Solution**: Fixed in v2025.09.27 - all JSON operations now use `default=str`
+
+**🔴 Missing response.json Fields**
+- **Issue**: Agent response missing required rubric fields
+- **Solution**: Check template configuration and ensure all required fields are specified
+
+**🔴 Log File Warnings**
+- **Issue**: Warning messages about log file creation
+- **Solution**: Non-blocking warnings - agent execution continues normally
+
+### Recent Fixes (September 2025)
+
+✅ **Fixed script execution blocking issue** - Resolved react_log.jsonl path creation problems
+✅ **Fixed JSON serialization errors** - Added proper datetime handling
+✅ **Consolidated duplicate executor files** - Removed confusion from multiple versions
+✅ **Improved directory creation** - Added robust path handling with `parents=True`
+✅ **Enhanced error handling** - Better logging and error reporting throughout the system
 
 ---
 

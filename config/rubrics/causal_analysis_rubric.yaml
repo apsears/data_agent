@@ -1,0 +1,98 @@
+name: "Causal Analysis Evaluation Rubric"
+description: "Evaluation criteria for anomaly detection and causal reasoning quality"
+analysis_type: "causal"
+
+scoring_scale:
+  - score: 5
+    label: "Excellent"
+    description: "Rigorous causal reasoning with appropriate anomaly detection"
+  - score: 4
+    label: "Good"
+    description: "Sound causal analysis with minor reasoning gaps"
+  - score: 3
+    label: "Satisfactory"
+    description: "Basic causal reasoning with some logical flaws"
+  - score: 2
+    label: "Poor"
+    description: "Weak causal reasoning or inappropriate anomaly claims"
+  - score: 1
+    label: "Very Poor"
+    description: "Spurious causal claims or no systematic anomaly detection"
+  - score: 0
+    label: "No Answer"
+    description: "No causal analysis or anomaly detection provided"
+
+evaluation_criteria:
+  anomaly_detection_rigor:
+    weight: 0.25
+    description: "Quality of statistical methods used to identify genuine anomalies"
+    scoring_guidelines:
+      5: "Sophisticated anomaly detection with appropriate baselines and thresholds"
+      4: "Good anomaly detection methodology with minor limitations"
+      3: "Basic but reasonable anomaly identification approach"
+      2: "Weak anomaly detection with questionable thresholds"
+      1: "Poor anomaly detection methodology"
+      0: "No systematic anomaly detection performed"
+
+  causal_reasoning_quality:
+    weight: 0.30
+    description: "Strength of causal reasoning and mechanistic explanations"
+    scoring_guidelines:
+      5: "Excellent causal reasoning with multiple lines of evidence"
+      4: "Strong causal arguments with good supporting logic"
+      3: "Reasonable causal reasoning with some gaps"
+      2: "Weak causal reasoning or over-confident claims"
+      1: "Poor causal reasoning with logical flaws"
+      0: "No causal reasoning provided"
+
+  confounding_consideration:
+    weight: 0.20
+    description: "Recognition and analysis of potential confounding factors"
+    scoring_guidelines:
+      5: "Thorough consideration of confounders with systematic analysis"
+      4: "Good awareness of confounders with most factors addressed"
+      3: "Some consideration of confounding factors"
+      2: "Limited awareness of potential confounders"
+      1: "Poor recognition of confounding issues"
+      0: "No consideration of confounding factors"
+
+  alternative_explanations:
+    weight: 0.15
+    description: "Exploration of competing hypotheses and alternative explanations"
+    scoring_guidelines:
+      5: "Systematically considers and evaluates multiple explanations"
+      4: "Good consideration of alternative hypotheses"
+      3: "Some exploration of alternative explanations"
+      2: "Limited consideration of competing explanations"
+      1: "Poor exploration of alternatives"
+      0: "No alternative explanations considered"
+
+  uncertainty_acknowledgment:
+    weight: 0.10
+    description: "Appropriate acknowledgment of causal inference limitations"
+    scoring_guidelines:
+      5: "Excellent discussion of limitations and uncertainty"
+      4: "Good acknowledgment of causal inference challenges"
+      3: "Some recognition of analytical limitations"
+      2: "Limited acknowledgment of uncertainty"
+      1: "Poor recognition of limitations"
+      0: "No acknowledgment of uncertainty or limitations"
+
+red_flags:
+  - "Makes strong causal claims from observational data without appropriate caveats"
+  - "Ignores obvious alternative explanations"
+  - "Treats correlation as evidence of causation"
+  - "Claims to identify anomalies without establishing proper baselines"
+  - "Uses inappropriate statistical methods for causal inference"
+  - "Over-interprets single data points as systematic anomalies"
+  - "Fails to consider temporal relationships in causal claims"
+
+strengths_to_recognize:
+  - "Establishes clear temporal relationships between causes and effects"
+  - "Uses multiple analytical approaches to strengthen causal arguments"
+  - "Distinguishes between necessary, sufficient, and contributory causes"
+  - "Considers dose-response or strength-of-association relationships"
+  - "Acknowledges limitations of observational data for causal inference"
+  - "Validates anomaly detection across different time periods or methods"
+  - "Considers plausibility of proposed causal mechanisms"
+  - "Quantifies uncertainty in causal conclusions appropriately"

@@ -9,6 +9,7 @@
     {
       "id": "f001",
       "category": "factual",
+      "analysis_type": "factual",
       "query": "What was the total scheduled quantity in Texas during 2023?",
       "expected_answer_type": "number_with_units",
       "expected_answer": "12,467,866,534 Dth"
@@ -16,6 +17,7 @@
     {
       "id": "f002",
       "category": "factual",
+      "analysis_type": "factual",
       "query": "How many pipeline companies are in the dataset?",
       "expected_answer_type": "count",
       "expected_answer": "169 companies"
@@ -23,6 +25,7 @@
     {
       "id": "f003",
       "category": "factual",
+      "analysis_type": "factual",
       "query": "What percentage of transactions have zero scheduled quantities?",
       "expected_answer_type": "percentage",
       "expected_answer": "48.2%"
@@ -30,6 +33,7 @@
     {
       "id": "f004",
       "category": "factual",
+      "analysis_type": "factual",
       "query": "How many total records are in the dataset?",
       "expected_answer_type": "count",
       "expected_answer": "23,854,855 records"
@@ -37,12 +41,14 @@
     {
       "id": "f005",
       "category": "factual",
+      "analysis_type": "factual",
       "query": "What is the maximum scheduled quantity in the dataset?",
       "expected_answer_type": "number_with_units"
     },
     {
       "id": "t001",
       "category": "temporal",
+      "analysis_type": "pattern",
       "query": "How has monthly gas flow in Texas changed from 2022 to 2024?",
       "expected_answer_type": "trend_analysis",
       "description": "Analyze temporal patterns in Texas gas flow over multiple years"
@@ -50,6 +56,7 @@
     {
       "id": "t002",
       "category": "temporal",
+      "analysis_type": "pattern",
       "query": "What are the seasonal patterns in gas consumption across all states?",
       "expected_answer_type": "seasonal_analysis",
       "description": "Identify seasonal trends and patterns in gas consumption"
@@ -57,6 +64,7 @@
     {
       "id": "t003",
       "category": "temporal",
+      "analysis_type": "pattern",
       "query": "Which months show the highest pipeline utilization rates?",
       "expected_answer_type": "monthly_ranking",
       "description": "Rank months by utilization and identify peak periods"
@@ -64,6 +72,7 @@
     {
       "id": "t004",
       "category": "temporal",
+      "analysis_type": "pattern",
       "query": "How has the number of zero-quantity transactions changed over time?",
       "expected_answer_type": "time_series_trend",
       "description": "Track changes in operational patterns over time"
@@ -71,6 +80,7 @@
     {
       "id": "t005",
       "category": "temporal",
+      "analysis_type": "pattern",
       "query": "What is the year-over-year growth rate for gas flows by quarter?",
       "expected_answer_type": "growth_analysis",
       "description": "Calculate quarterly growth rates and identify trends"
@@ -78,6 +88,7 @@
     {
       "id": "g001",
       "category": "geographic",
+      "analysis_type": "pattern",
       "query": "Which states have the highest total gas flow volumes?",
       "expected_answer_type": "state_ranking",
       "description": "Rank states by total pipeline gas volumes"
@@ -85,6 +96,7 @@
     {
       "id": "g002",
       "category": "geographic",
+      "analysis_type": "pattern",
       "query": "How does gas flow distribution vary between Northeast, Southeast, Midwest, and West regions?",
       "expected_answer_type": "regional_comparison",
       "description": "Compare gas flow patterns across major US regions"
@@ -92,6 +104,7 @@
     {
       "id": "g003",
       "category": "geographic",
+      "analysis_type": "pattern",
       "query": "Which states show the most volatile gas flow patterns?",
       "expected_answer_type": "volatility_analysis",
       "description": "Identify states with highest variability in gas flows"
@@ -99,6 +112,7 @@
     {
       "id": "g004",
       "category": "geographic",
+      "analysis_type": "pattern",
       "query": "What is the average pipeline utilization rate by state?",
       "expected_answer_type": "state_utilization",
       "description": "Calculate utilization efficiency across states"
@@ -106,6 +120,7 @@
     {
       "id": "g005",
       "category": "geographic",
+      "analysis_type": "pattern",
       "query": "Which geographic regions have the highest concentration of pipeline delivery points?",
       "expected_answer_type": "infrastructure_density",
       "description": "Analyze pipeline infrastructure distribution"
@@ -113,6 +128,7 @@
     {
       "id": "e001",
       "category": "entity",
+      "analysis_type": "pattern",
       "query": "Which pipeline companies handle the largest volumes of gas?",
       "expected_answer_type": "company_ranking",
       "description": "Rank pipeline companies by total gas volume handled"
@@ -120,6 +136,7 @@
     {
       "id": "e002",
       "category": "entity",
+      "analysis_type": "pattern",
       "query": "How do different pipeline companies compare in terms of operational efficiency?",
       "expected_answer_type": "efficiency_comparison",
       "description": "Compare pipeline companies by utilization rates and operational metrics"
@@ -127,6 +144,7 @@
     {
       "id": "e003",
       "category": "entity",
+      "analysis_type": "pattern",
       "query": "Which companies show the most consistent gas flow patterns?",
       "expected_answer_type": "consistency_analysis",
       "description": "Analyze variability and consistency across pipeline companies"
@@ -134,6 +152,7 @@
     {
       "id": "e004",
       "category": "entity",
+      "analysis_type": "pattern",
       "query": "What are the market share distributions among pipeline companies?",
       "expected_answer_type": "market_share",
       "description": "Calculate market share and concentration metrics"
@@ -141,6 +160,7 @@
     {
       "id": "e005",
       "category": "entity",
+      "analysis_type": "pattern",
       "query": "Which pipeline companies have the most extensive geographic coverage?",
       "expected_answer_type": "geographic_coverage",
       "description": "Analyze pipeline companies by number of states and locations served"
@@ -148,6 +168,7 @@
     {
       "id": "a001",
       "category": "anomaly",
+      "analysis_type": "causal",
       "query": "What are the most extreme statistical outliers in daily gas flow volumes?",
       "expected_answer_type": "statistical_outliers",
       "description": "Identify extreme deviations using statistical methods (NOT business anomalies)",
@@ -156,6 +177,7 @@
     {
       "id": "a002",
       "category": "anomaly",
+      "analysis_type": "causal",
       "query": "Which locations show unusually high variance in their gas flow patterns?",
       "expected_answer_type": "variance_outliers",
       "description": "Find locations with abnormally high operational volatility",
@@ -164,6 +186,7 @@
     {
       "id": "a003",
       "category": "anomaly",
+      "analysis_type": "causal",
       "query": "What time periods show the most unusual gas flow activity across the system?",
       "expected_answer_type": "temporal_anomalies",
       "description": "Identify time periods with system-wide unusual activity",
@@ -172,6 +195,7 @@
     {
       "id": "a004",
       "category": "anomaly",
+      "analysis_type": "causal",
       "query": "Which pipeline companies exhibit the most irregular operational patterns?",
       "expected_answer_type": "operational_irregularities",
       "description": "Identify companies with non-standard flow patterns",
@@ -180,6 +204,7 @@
     {
       "id": "a005",
       "category": "anomaly",
+      "analysis_type": "causal",
       "query": "What are the most extreme deviations from expected seasonal gas flow patterns?",
       "expected_answer_type": "seasonal_deviations",
       "description": "Find data points that deviate most from seasonal baselines",
