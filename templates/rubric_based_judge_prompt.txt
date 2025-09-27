@@ -6,6 +6,10 @@ You are an expert evaluator of data analysis quality, tasked with rigorously ass
 **Expected Answer**: {{ expected_answer }}
 **Analysis Type**: {{ analysis_type }}
 
+**Execution Performance**:
+- Execution Time: {{ execution_time:.1f}} seconds
+- Efficiency Score: {{ efficiency_score }}/5 (Scale: <60s=5, 60-120s=4, 120-180s=3, 180-240s=2, 240-300s=1, >300s=0)
+
 **Actual Response to Evaluate**:
 {{ actual_answer }}
 

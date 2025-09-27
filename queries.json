@@ -9,7 +9,7 @@
     {
       "id": "f001",
       "category": "factual",
-      "analysis_type": "factual",
+      "analysis_type": "pattern",
       "query": "What was the total scheduled quantity in Texas during 2023?",
       "expected_answer_type": "number_with_units",
       "expected_answer": "12,467,866,534 Dth"
@@ -17,7 +17,7 @@
     {
       "id": "f002",
       "category": "factual",
-      "analysis_type": "factual",
+      "analysis_type": "pattern",
       "query": "How many pipeline companies are in the dataset?",
       "expected_answer_type": "count",
       "expected_answer": "169 companies"
@@ -25,7 +25,7 @@
     {
       "id": "f003",
       "category": "factual",
-      "analysis_type": "factual",
+      "analysis_type": "pattern",
       "query": "What percentage of transactions have zero scheduled quantities?",
       "expected_answer_type": "percentage",
       "expected_answer": "48.2%"
@@ -33,7 +33,7 @@
     {
       "id": "f004",
       "category": "factual",
-      "analysis_type": "factual",
+      "analysis_type": "pattern",
       "query": "How many total records are in the dataset?",
       "expected_answer_type": "count",
       "expected_answer": "23,854,855 records"
@@ -41,14 +41,14 @@
     {
       "id": "f005",
       "category": "factual",
-      "analysis_type": "factual",
+      "analysis_type": "pattern",
       "query": "What is the maximum scheduled quantity in the dataset?",
       "expected_answer_type": "number_with_units"
     },
     {
       "id": "t001",
       "category": "temporal",
-      "analysis_type": "pattern",
+      "analysis_type": "factual",
       "query": "How has monthly gas flow in Texas changed from 2022 to 2024?",
       "expected_answer_type": "trend_analysis",
       "description": "Analyze temporal patterns in Texas gas flow over multiple years"
@@ -56,7 +56,7 @@
     {
       "id": "t002",
       "category": "temporal",
-      "analysis_type": "pattern",
+      "analysis_type": "factual",
       "query": "What are the seasonal patterns in gas consumption across all states?",
       "expected_answer_type": "seasonal_analysis",
       "description": "Identify seasonal trends and patterns in gas consumption"
@@ -64,7 +64,7 @@
     {
       "id": "t003",
       "category": "temporal",
-      "analysis_type": "pattern",
+      "analysis_type": "factual",
       "query": "Which months show the highest pipeline utilization rates?",
       "expected_answer_type": "monthly_ranking",
       "description": "Rank months by utilization and identify peak periods"
@@ -72,7 +72,7 @@
     {
       "id": "t004",
       "category": "temporal",
-      "analysis_type": "pattern",
+      "analysis_type": "factual",
       "query": "How has the number of zero-quantity transactions changed over time?",
       "expected_answer_type": "time_series_trend",
       "description": "Track changes in operational patterns over time"
@@ -80,7 +80,7 @@
     {
       "id": "t005",
       "category": "temporal",
-      "analysis_type": "pattern",
+      "analysis_type": "factual",
       "query": "What is the year-over-year growth rate for gas flows by quarter?",
       "expected_answer_type": "growth_analysis",
       "description": "Calculate quarterly growth rates and identify trends"

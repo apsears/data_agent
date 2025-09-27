@@ -194,12 +194,12 @@ def run_python(ctx: RunContext[AgentState], script_path: str) -> str:
 
         # Create logs directory in parent workspace
         logs_dir = state.workspace_dir.parent / "logs"
-        logs_dir.mkdir(exist_ok=True)
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate unique task ID for this execution
         task_id = f"{int(time.time())}-{script_path.replace('/', '_').replace('.py', '')}"
-        stdout_log = logs_dir / f"stdout-{task_id}.log"
-        stderr_log = logs_dir / f"stderr-{task_id}.log"
+        stdout_log = (logs_dir / f"stdout-{task_id}.log").resolve()
+        stderr_log = (logs_dir / f"stderr-{task_id}.log").resolve()
 
         # Change to workspace directory for execution
         original_cwd = os.getcwd()
@@ -364,12 +364,12 @@ def write_file_and_run_python(ctx: RunContext[AgentState], file_path: str, conte
         # Step 2: Execute the script immediately
         # Create logs directory in parent workspace
         logs_dir = state.workspace_dir.parent / "logs"
-        logs_dir.mkdir(exist_ok=True)
+        logs_dir.mkdir(parents=True, exist_ok=True)
 
         # Generate unique task ID for this execution
         task_id = f"{int(time.time())}-{file_path.replace('/', '_').replace('.py', '')}"
-        stdout_log = logs_dir / f"stdout-{task_id}.log"
-        stderr_log = logs_dir / f"stderr-{task_id}.log"
+        stdout_log = (logs_dir / f"stdout-{task_id}.log").resolve()
+        stderr_log = (logs_dir / f"stderr-{task_id}.log").resolve()
 
         # Change to workspace directory for execution
         original_cwd = os.getcwd()

@@ -199,11 +199,13 @@ Create a `queries.json` file:
 
 **🔍 Automated Quality Assessment**
 - Built-in LLM judging with accuracy scores (1-5 scale)
+- Efficiency scoring based on execution time (<60s=5, 60-120s=4, 120-180s=3, 180-240s=2, 240-300s=1, >300s=0)
 - Cost tracking and optimization
 - Code artifact verification for reproducibility
 
 **📊 Comprehensive Logging**
 - Complete execution history in `.runs/` directories
+- Batch results automatically saved to `results/` folder
 - Metadata collection (git status, environment, performance)
 - Structured JSON logs for retrospective analysis
 

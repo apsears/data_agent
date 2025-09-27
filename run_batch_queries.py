@@ -264,6 +264,31 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
         }
 
 
+def _calculate_efficiency_score(execution_time: float) -> int:
+    """Calculate efficiency score based on execution time.
+
+    Scoring scale:
+    - <60s: 5
+    - 60-120s: 4
+    - 120-180s: 3
+    - 180-240s: 2
+    - 240-300s: 1
+    - >300s: 0
+    """
+    if execution_time < 60:
+        return 5
+    elif execution_time < 120:
+        return 4
+    elif execution_time < 180:
+        return 3
+    elif execution_time < 240:
+        return 2
+    elif execution_time < 300:
+        return 1
+    else:
+        return 0
+
+
 def _load_rubric(analysis_type: str) -> Dict[str, Any]:
     """Load evaluation rubric for the specified analysis type."""
     rubric_path = Path(f"config/rubrics/{analysis_type}_analysis_rubric.yaml")
@@ -468,6 +493,10 @@ def judge_single_result(result: Dict[str, Any], query_data: Dict[str, Any], conf
         for strength in rubric['strengths_to_recognize']:
             rubric_content += f"- {strength}\n"
 
+        # Calculate efficiency score based on execution time
+        execution_time = result.get("execution_time", 0)
+        efficiency_score = _calculate_efficiency_score(execution_time)
+
         # Render judging prompt with rubric
         judging_prompt = template.render(
             query=query_data["query"],
@@ -475,7 +504,9 @@ def judge_single_result(result: Dict[str, Any], query_data: Dict[str, Any], conf
             actual_answer=actual_answer,
             analysis_type=analysis_type,
             rubric_content=rubric_content,
-            rubric_criteria=rubric['evaluation_criteria']
+            rubric_criteria=rubric['evaluation_criteria'],
+            execution_time=execution_time,
+            efficiency_score=efficiency_score
         )
 
         # Calculate input tokens and make API call
@@ -495,6 +526,8 @@ def judge_single_result(result: Dict[str, Any], query_data: Dict[str, Any], conf
             "judging_performed": True,
             "judging_time": judging_time,
             "accuracy_score": judging_data.get("accuracy_score", -1),
+            "efficiency_score": efficiency_score,
+            "execution_time": execution_time,
             "explanation": judging_data.get("explanation", "No explanation provided"),
             "numerical_comparison": judging_data.get("numerical_comparison", ""),
             "methodology_assessment": judging_data.get("methodology_assessment", ""),
@@ -671,10 +704,12 @@ def print_summary(results: List[Dict[str, Any]], total_time: float, workers: int
 
     if judged_results:
         total_cost = sum(r["judging"]["judging_cost"]["total_cost"] for r in judged_results)
-        avg_score = sum(r["judging"]["accuracy_score"] for r in judged_results) / len(judged_results)
+        avg_accuracy = sum(r["judging"]["accuracy_score"] for r in judged_results) / len(judged_results)
+        avg_efficiency = sum(r["judging"]["efficiency_score"] for r in judged_results) / len(judged_results)
         print(f"\n📊 JUDGING SUMMARY:")
         print(f"  Judged Queries: {len(judged_results)}")
-        print(f"  Average Accuracy Score: {avg_score:.2f}/5")
+        print(f"  Average Accuracy Score: {avg_accuracy:.2f}/5")
+        print(f"  Average Efficiency Score: {avg_efficiency:.2f}/5")
         print(f"  Total Judging Cost: ${total_cost:.4f}")
 
     if successful:
@@ -682,9 +717,10 @@ def print_summary(results: List[Dict[str, Any]], total_time: float, workers: int
         for r in successful:
             judge_info = ""
             if r.get("judging", {}).get("judging_performed", False):
-                score = r["judging"]["accuracy_score"]
+                accuracy = r["judging"]["accuracy_score"]
+                efficiency = r["judging"]["efficiency_score"]
                 cost = r["judging"]["judging_cost"]["total_cost"]
-                judge_info = f" | Score: {score}/5 | Cost: ${cost:.4f}"
+                judge_info = f" | Acc: {accuracy}/5 | Eff: {efficiency}/5 | Cost: ${cost:.4f}"
 
             # Add detailed timing if available
             timing_info = ""
@@ -759,10 +795,14 @@ def main():
         print(f"Error loading queries file: {e}")
         sys.exit(1)
 
-    # Set up output file
+    # Set up output file in results/ folder
     if args.output is None:
+        # Create results directory if it doesn't exist
+        results_dir = Path("results")
+        results_dir.mkdir(exist_ok=True)
+
         timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-        args.output = f"batch_results_{timestamp}.json"
+        args.output = f"results/batch_results_{timestamp}.json"
 
     # Base arguments for run_agent.py
     base_args = [
