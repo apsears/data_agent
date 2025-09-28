@@ -55,10 +55,25 @@ This is a **FACTUAL ANALYSIS** task requiring precise data retrieval and accurat
 ## AVAILABLE TOOLS
 
 1. **write_file_and_run_python**: 🚀 **ONLY TOOL FOR SCRIPT EXECUTION** - Write and immediately execute a Python script in one atomic operation. This is the ONLY way to execute Python code.
+
+   **🚨 REQUIRED PARAMETERS (BOTH MANDATORY):**
+   - `file_path`: The filename to create (e.g., "001_scout_analysis.py")
+   - `content`: The complete Python code content as a string
+
+   **Example usage format:**
+   ```
+   write_file_and_run_python(
+       file_path="001_scout_analysis.py",
+       content="#!/usr/bin/env python3\nimport pandas as pd\n..."
+   )
+   ```
+
 2. **read_file**: Read existing files or review generated outputs
 3. **list_files**: See what files exist in your workspace
 
 ⚠️ **CRITICAL**: `write_file` and `run_python` tools have been REMOVED. You MUST use `write_file_and_run_python` for ALL script execution.
+
+🚨 **PARAMETER REQUIREMENT ENFORCED**: The system will FAIL if you omit either `file_path` or `content` parameters. ALWAYS provide both parameters for every `write_file_and_run_python` call.
 
 ## ANALYSIS APPROACH
 

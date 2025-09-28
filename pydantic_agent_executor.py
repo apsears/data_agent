@@ -490,6 +490,15 @@ def write_file_and_run_python(ctx: RunContext[AgentState], args: WriteRunArgs) -
     """
     state = ctx.deps
     start_time = time.time()
+
+    # PARAMETER VALIDATION: Ensure both required parameters are provided
+    if not hasattr(args, 'file_path') or not args.file_path:
+        raise ValueError("🚨 MISSING PARAMETER: file_path is required for write_file_and_run_python")
+    if not hasattr(args, 'content') or not args.content:
+        raise ValueError("🚨 MISSING PARAMETER: content is required for write_file_and_run_python")
+    if not args.content.strip():
+        raise ValueError("🚨 EMPTY CONTENT: content parameter cannot be empty or whitespace-only")
+
     file_path = args.file_path
     content = args.content
 
@@ -970,13 +979,178 @@ def main():
             retry_ledger = RetryLedger(args.query_id, workspace_dir)
             set_current_ledger(retry_ledger)
 
-            # Execute agent and capture result
+            # Enhanced debugging: Track agent execution flow
+            execution_debug = {
+                "agent_start_time": time.time(),
+                "expected_steps": ["initial_request", "first_tool_call", "tool_result", "second_tool_call?", "final_response"],
+                "actual_steps": []
+            }
+
+            state.log_react_event("debug_agent_start", execution_debug)
+            print(f"🔍 DEBUG: Starting agent with task: {args.task[:100]}...")
+
+            # COMPREHENSIVE PYDANTIC AI DEBUGGING - Hook into internal mechanisms
+            from pydantic_ai import Agent
+            import logging
+            import sys
+
+            # Create detailed PydanticAI logger
+            pydantic_logger = logging.getLogger('pydantic_ai_debug')
+            pydantic_logger.setLevel(logging.DEBUG)
+
+            # Create handler to capture all PydanticAI internal activity
+            log_handler = logging.StreamHandler(sys.stdout)
+            log_handler.setLevel(logging.DEBUG)
+            formatter = logging.Formatter('🔍 PYDANTIC[%(levelname)s]: %(message)s')
+            log_handler.setFormatter(formatter)
+            pydantic_logger.addHandler(log_handler)
+
+            # Hook into PydanticAI's logging
+            for logger_name in ['pydantic_ai', 'pydantic_ai.agent', 'pydantic_ai.tools', 'pydantic_ai.models']:
+                logger = logging.getLogger(logger_name)
+                logger.setLevel(logging.DEBUG)
+                logger.addHandler(log_handler)
+
+            # Monkey patch PydanticAI's critical methods to add debugging + parameter fixing
+            original_run_sync = agent.run_sync
+
+            def debug_run_sync(task, **kwargs):
+                print(f"🔍 PYDANTIC ENTRY: run_sync called with task: {task[:100]}...")
+                try:
+                    result = original_run_sync(task, **kwargs)
+                    print(f"🔍 PYDANTIC SUCCESS: run_sync returned result type: {type(result)}")
+                    print(f"🔍 PYDANTIC SUCCESS: result has {len(result.all_messages()) if hasattr(result, 'all_messages') else 'unknown'} messages")
+                    return result
+                except Exception as e:
+                    # AGGRESSIVE FIX: Detect and handle missing content parameter
+                    if ("ValidationError" in str(type(e).__name__) and
+                        "content" in str(e) and
+                        "Field required" in str(e) and
+                        "write_file_and_run_python" in str(e)):
+
+                        print(f"🚨 DETECTED MISSING CONTENT PARAMETER!")
+                        print(f"🚨 PydanticAI generated incomplete tool call")
+                        print(f"🔧 ATTEMPTING PARAMETER RECONSTRUCTION...")
+
+                        # This is a fundamental PydanticAI issue that we can't easily fix
+                        # without major framework changes. For now, log it clearly.
+                        print(f"❌ CANNOT AUTO-FIX: This requires PydanticAI framework repair")
+
+                    print(f"🔍 PYDANTIC FAILURE: run_sync raised {type(e).__name__}: {str(e)}")
+                    print(f"🔍 PYDANTIC FAILURE: Exception args: {e.args}")
+                    if hasattr(e, '__traceback__'):
+                        import traceback
+                        print(f"🔍 PYDANTIC FAILURE: Traceback:\n{traceback.format_exc()}")
+                    raise
+
+            agent.run_sync = debug_run_sync
+
+            # DEEP HOOK: Intercept tool execution at the lowest level
+            # Find and hook PydanticAI's tool calling mechanism
+            try:
+                # Hook into the agent's tool registry if available
+                if hasattr(agent, '_tools'):
+                    print(f"🔍 PYDANTIC TOOLS: Found {len(agent._tools)} registered tools")
+                    for tool_name, tool_func in agent._tools.items():
+                        print(f"🔍 PYDANTIC TOOLS: - {tool_name}")
+
+                        # Wrap each tool function with debugging
+                        def create_tool_wrapper(orig_func, name):
+                            def wrapped_tool(*args, **kwargs):
+                                print(f"🔍 TOOL ENTRY: {name} called with args={len(args)}, kwargs={list(kwargs.keys())}")
+                                try:
+                                    result = orig_func(*args, **kwargs)
+                                    print(f"🔍 TOOL SUCCESS: {name} returned {type(result)}: {str(result)[:200]}...")
+                                    return result
+                                except Exception as e:
+                                    print(f"🔍 TOOL FAILURE: {name} raised {type(e).__name__}: {str(e)}")
+                                    raise
+                            return wrapped_tool
+
+                        agent._tools[tool_name] = create_tool_wrapper(tool_func, tool_name)
+
+                # Also try to hook the model interface
+                if hasattr(agent, '_model'):
+                    print(f"🔍 PYDANTIC MODEL: Using model type {type(agent._model)}")
+
+                    # Hook model completion if possible
+                    if hasattr(agent._model, 'request'):
+                        original_request = agent._model.request
+
+                        def debug_model_request(*args, **kwargs):
+                            print(f"🔍 MODEL REQUEST: Called with {len(args)} args, {len(kwargs)} kwargs")
+                            try:
+                                result = original_request(*args, **kwargs)
+                                print(f"🔍 MODEL SUCCESS: Request returned {type(result)}")
+                                return result
+                            except Exception as e:
+                                print(f"🔍 MODEL FAILURE: Request raised {type(e).__name__}: {str(e)}")
+                                raise
+
+                        agent._model.request = debug_model_request
+
+            except Exception as debug_error:
+                print(f"🔍 DEBUG SETUP ERROR: {debug_error}")
+
+            # Execute agent and capture result with enhanced monitoring
+            start_execution = time.time()
+            print(f"🔍 STARTING PYDANTIC EXECUTION...")
             result = agent.run_sync(args.task, deps=state)
+            end_execution = time.time()
+            print(f"🔍 PYDANTIC EXECUTION COMPLETED SUCCESSFULLY")
+
+            execution_debug["agent_end_time"] = end_execution
+            execution_debug["total_execution_time"] = end_execution - start_execution
+            execution_debug["agent_completed"] = True
+
+            print(f"🔍 DEBUG: Agent completed in {end_execution - start_execution:.2f}s")
+            state.log_react_event("debug_agent_complete", execution_debug)
 
             # Log ALL message history with detailed breakdown
             all_messages = result.all_messages()
             logger = ReActStepLogger(state)
             logger.log_complete_conversation_flow(all_messages)
+
+            # ENHANCED DEBUG: Analyze conversation flow for tool call patterns
+            tool_call_analysis = {
+                "total_messages": len(all_messages),
+                "tool_calls_detected": 0,
+                "tool_results_detected": 0,
+                "final_response_detected": False,
+                "message_breakdown": []
+            }
+
+            for i, message in enumerate(all_messages):
+                msg_analysis = {
+                    "index": i,
+                    "type": type(message).__name__,
+                    "content_preview": str(message)[:200] + "..." if len(str(message)) > 200 else str(message)
+                }
+
+                # Check for tool call patterns
+                msg_str = str(message).lower()
+                if "write_file_and_run_python" in msg_str:
+                    if "tool_call" in msg_str or "function_call" in msg_str:
+                        tool_call_analysis["tool_calls_detected"] += 1
+                        msg_analysis["is_tool_call"] = True
+                    elif "result" in msg_str or "output" in msg_str:
+                        tool_call_analysis["tool_results_detected"] += 1
+                        msg_analysis["is_tool_result"] = True
+
+                # Check for final response patterns
+                if "response.json" in msg_str or "confidence" in msg_str:
+                    tool_call_analysis["final_response_detected"] = True
+                    msg_analysis["is_final_response"] = True
+
+                tool_call_analysis["message_breakdown"].append(msg_analysis)
+
+            print(f"🔍 TOOL CALL ANALYSIS:")
+            print(f"   Total messages: {tool_call_analysis['total_messages']}")
+            print(f"   Tool calls detected: {tool_call_analysis['tool_calls_detected']}")
+            print(f"   Tool results detected: {tool_call_analysis['tool_results_detected']}")
+            print(f"   Final response detected: {tool_call_analysis['final_response_detected']}")
+
+            state.log_react_event("debug_tool_call_analysis", tool_call_analysis)
 
             # Calculate token usage and costs from conversation messages
             total_input_tokens = 0
@@ -1049,6 +1223,17 @@ def main():
                 json.dump(conversation_log, f, indent=2, default=str)
 
         except Exception as e:
+            # COMPREHENSIVE FAILURE ANALYSIS - Capture every detail
+            print(f"🔍 EXCEPTION CAUGHT: {type(e).__name__}: {str(e)}")
+
+            # Check if this is the specific validation error we're trying to fix
+            if ("ValidationError" in str(type(e).__name__) and
+                "content" in str(e) and
+                "Field required" in str(e)):
+                print(f"🚨 PARAMETER VALIDATION ERROR DETECTED!")
+                print(f"🚨 Agent failed to provide required 'content' parameter")
+                print(f"🚨 This is NOT a retry issue - it's incomplete tool arguments")
+
             # Enhanced error logging to capture exact failure details
             error_details = {
                 "error": str(e),
@@ -1058,17 +1243,90 @@ def main():
                 "traceback": str(e.__traceback__) if hasattr(e, '__traceback__') else None
             }
 
+            # CRITICAL: Check if this is the success-interpreted-as-failure case
+            retry_ledger = get_current_ledger()
+            if retry_ledger:
+                retries_burned = sum(a.retry_delta for a in retry_ledger.attempts)
+                print(f"🔍 RETRY ANALYSIS: {retries_burned} retries actually burned")
+
+                # If no retries burned but still failing, this is the bug
+                if retries_burned == 0 and "exceeded max retries" in str(e):
+                    print(f"🚨 SUCCESS-AS-FAILURE BUG DETECTED!")
+                    print(f"🚨 Tool executions successful but PydanticAI reports retry failure")
+
+                    # Capture detailed state at failure
+                    error_details["bug_detected"] = "success_interpreted_as_failure"
+                    error_details["actual_retries_burned"] = retries_burned
+                    error_details["tool_executions"] = [
+                        {
+                            "attempt": a.attempt_number,
+                            "phase": a.phase.value,
+                            "exit_code": a.exit_code,
+                            "retry_delta": a.retry_delta,
+                            "tool_name": a.tool_name
+                        } for a in retry_ledger.attempts
+                    ]
+
+            # Try to extract more information from PydanticAI's internal state
+            try:
+                if hasattr(e, '__context__'):
+                    print(f"🔍 EXCEPTION CONTEXT: {e.__context__}")
+                if hasattr(e, '__cause__'):
+                    print(f"🔍 EXCEPTION CAUSE: {e.__cause__}")
+                if hasattr(e, '__traceback__'):
+                    import traceback
+                    full_traceback = traceback.format_exc()
+                    print(f"🔍 FULL TRACEBACK:\n{full_traceback}")
+                    error_details["full_traceback"] = full_traceback
+
+                # Try to inspect the agent's state at failure
+                if 'agent' in locals():
+                    agent_state = {}
+                    for attr in ['_model', '_tools', '_system_prompt']:
+                        if hasattr(agent, attr):
+                            agent_state[attr] = str(getattr(agent, attr))[:200]
+                    error_details["agent_state_at_failure"] = agent_state
+
+            except Exception as debug_error:
+                print(f"🔍 DEBUG ERROR: {debug_error}")
+                error_details["debug_error"] = str(debug_error)
+
             # Add PydanticAI specific error details if available
             if hasattr(e, 'args') and e.args:
                 error_details["error_args"] = list(e.args)
 
-            # Check if this is a tool retry error
+            # Enhanced debugging for retry errors
             if "exceeded max retries" in str(e):
                 error_details["failure_type"] = "tool_retry_limit_exceeded"
-                error_details["retry_analysis"] = {
-                    "tool_in_question": "write_file_and_run_python",
-                    "likely_cause": "second_tool_execution_failed"
-                }
+
+                # Get current tool execution count from state
+                tool_execution_count = len([t for t in state.tool_timings if t.tool_name == "write_file_and_run_python"])
+
+                error_details["tool_execution_count"] = tool_execution_count
+                error_details["tool_timings"] = [
+                    {
+                        "tool": t.tool_name,
+                        "success": t.success,
+                        "duration": t.duration
+                    } for t in state.tool_timings
+                ]
+
+                # Check what files were created
+                workspace_files = []
+                try:
+                    for file_path in state.workspace_dir.rglob("*"):
+                        if file_path.is_file():
+                            workspace_files.append(str(file_path.relative_to(state.workspace_dir)))
+                except Exception:
+                    pass
+
+                error_details["workspace_files"] = workspace_files
+
+                print(f"🔍 RETRY ERROR DEBUG:")
+                print(f"   Tool executions: {tool_execution_count}")
+                print(f"   Last tool success: {state.tool_timings[-1].success if state.tool_timings else 'None'}")
+                print(f"   Workspace files: {len(workspace_files)}")
+                print(f"   Error details: {str(e)}")
 
                 # Print retry summary from ledger if this was a retry-related failure
                 print_retry_summary(str(e))
