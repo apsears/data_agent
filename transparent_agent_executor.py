@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 from jinja2 import Template
 from pydantic import BaseModel, Field
 
-from transparent_agent import TransparentAgent, AgentContext, create_transparent_agent
+from native_transparent_agent import NativeTransparentAgent, AgentContext, create_native_transparent_agent
 
 # Load environment variables
 load_dotenv()
@@ -143,17 +143,21 @@ def calculate_cost(input_tokens: int, output_tokens: int, model: str) -> Dict[st
     }
 
 
-def load_template(template_path: str, query: str, dataset_description: str, **kwargs) -> str:
+def load_template(template_path: str, query: str, dataset_description: str, config: Dict[str, Any], **kwargs) -> str:
     """Load and render the Jinja2 template."""
     template_file = Path(template_path)
     if not template_file.exists():
         raise FileNotFoundError(f"Template not found: {template_path}")
 
-    # Load detailed dataset analysis if available
-    dataset_analysis_path = Path("docs/2025_09_22_17_31_preliminary_data_analysis.md")
+    # Load detailed dataset analysis from config
     dataset_analysis = ""
-    if dataset_analysis_path.exists():
-        dataset_analysis = dataset_analysis_path.read_text(encoding='utf-8')
+    dataset_analysis_path = config.get("dataset", {}).get("analysis_file")
+    if dataset_analysis_path:
+        analysis_path = Path(dataset_analysis_path)
+        if analysis_path.exists():
+            dataset_analysis = analysis_path.read_text(encoding='utf-8')
+        else:
+            raise FileNotFoundError(f"Dataset analysis file not found: {dataset_analysis_path}")
 
     template = Template(template_file.read_text(encoding='utf-8'))
 
@@ -288,14 +292,15 @@ def main():
             template_path,
             args.task,
             context.dataset_description,
+            config,
             analysis_type=analysis_type,
             rubric=rubric
         )
 
-        # Create transparent agent
+        # Create native transparent agent
         if context.console_updates_enabled:
-            print(f"Creating transparent agent with model: {args.model}")
-        agent = create_transparent_agent(args.model, args.max_tools)
+            print(f"Creating native transparent agent with model: {args.model}")
+        agent = create_native_transparent_agent(args.model, args.max_tools)
 
         # Log task start
         context.log_react_event("task_start", {
@@ -306,7 +311,7 @@ def main():
 
         # Run agent
         if context.console_updates_enabled:
-            print("Running transparent agent analysis...")
+            print("Running native transparent agent analysis...")
 
         try:
             # Initialize retry ledger for this query
@@ -381,7 +386,7 @@ def main():
         with open(agent_response_file, 'w', encoding='utf-8') as f:
             json.dump(agent_response, f, indent=2, default=str)
 
-        print(f"✅ Transparent agent successfully created comprehensive response.json")
+        print(f"✅ Native transparent agent successfully created comprehensive response.json")
 
         # Calculate timing summary
         total_elapsed = time.time() - total_start_time
@@ -437,7 +442,7 @@ def main():
         return 0
 
     except Exception as e:
-        print(f"\n❌ Transparent agent execution failed: {str(e)}")
+        print(f"\n❌ Native transparent agent execution failed: {str(e)}")
         print(f"   Error type: {type(e).__name__}")
 
         # Save error details

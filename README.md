@@ -1,6 +1,8 @@
 # Claude Data Agent
 
-A sophisticated agentic system built with **PydanticAI** that gives Claude the ability to:
+> **🚀 September 2025 Update:** This project has been completely migrated from PydanticAI to **native Anthropic tool calling** with massive improvements: 86.5% cost reduction, 5/5 accuracy scores, and simplified architecture. See [migration docs](docs/2025_09_27_20_45_pydantic_ai_removal_complete.md) for details.
+
+A sophisticated agentic system built with **native Anthropic tool calling** that gives Claude the ability to:
 - Write and execute Python scripts in isolated workspaces
 - Implement ReAct (Reasoning-Acting-Observing) patterns
 - Generate detailed JSON logs of each reasoning stage
@@ -270,15 +272,17 @@ Perfect for batch analysis, model evaluation, and production data processing wor
 - **Issue**: Warning messages about log file creation
 - **Solution**: Non-blocking warnings - agent execution continues normally
 
-### Recent Fixes (September 2025)
+### Recent Major Updates (September 2025)
 
+✅ **🚀 MAJOR: Migrated from PydanticAI to Native Anthropic Tool Calling** - Complete architecture overhaul
+✅ **✨ 86.5% Cost Reduction** - From $0.1061 to $0.0143 per query with improved accuracy
+✅ **🎯 Perfect Accuracy Scores** - Improved from 2/5 to 5/5 accuracy with native tool calling
+✅ **🔧 Simplified Codebase** - Removed 200+ lines of complex XML parsing logic
+✅ **⚡ Real Tool Execution** - Tools now actually execute instead of hallucinating results
+✅ **🏗️ Future-Proof Architecture** - Using official Anthropic API patterns
 ✅ **Fixed script execution blocking issue** - Resolved react_log.jsonl path creation problems
 ✅ **Fixed JSON serialization errors** - Added proper datetime handling
-✅ **Consolidated duplicate executor files** - Removed confusion from multiple versions
-✅ **Improved directory creation** - Added robust path handling with `parents=True`
-✅ **Enhanced error handling** - Better logging and error reporting throughout the system
 ✅ **Added tiktoken cost tracking** - Real-time token counting with accurate cost calculation
-✅ **Fixed JSON serialization in agent scripts** - Added prompt guidance for numpy/pandas types
 
 ---
 

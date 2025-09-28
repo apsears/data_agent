@@ -1,6 +1,6 @@
 model:
   provider: "anthropic"
-  name: "claude-3-5-haiku-20241022"
+  name: "claude-sonnet-4-20250514"
 
 agent:
   max_tools: 20
@@ -13,6 +13,11 @@ react_demo:
 
 workspace:
   base_dir: ".runs"
+
+dataset:
+  description: "US Natural Gas Pipeline Transportation Data - Comprehensive dataset containing 23,854,855 records spanning 3.7 years (January 2022 to August 2025) across 169 pipeline companies, 17,528 delivery locations, and 48 states. Includes daily gas scheduling operations with receipt/delivery indicators, transaction categories, geographic data, and scheduled quantities."
+  path: "data/pipeline_data.parquet"
+  analysis_file: "/Users/user/Projects/claude_data_agent/docs/2025_09_22_17_31_preliminary_data_analysis.md"
 
 judging:
   enabled: true
