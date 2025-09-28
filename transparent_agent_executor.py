@@ -206,6 +206,49 @@ def select_template_by_analysis_type(query_data: Dict[str, Any], default_templat
     return selected_template
 
 
+def aggregate_costs_from_react_log(workspace_dir: Path) -> Dict[str, Any]:
+    """Aggregate actual costs from react_log.jsonl events with cost information."""
+    react_log_path = workspace_dir / "workspace" / "react_log.jsonl"
+
+    if not react_log_path.exists():
+        # Fallback to zero costs if no log exists
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_cost": 0.0
+        }
+
+    total_input_tokens = 0
+    total_output_tokens = 0
+    total_cost = 0.0
+
+    try:
+        with open(react_log_path, 'r') as f:
+            for line in f:
+                event = json.loads(line.strip())
+
+                # Sum costs from events that have cost tracking
+                if 'input_tokens' in event and 'output_tokens' in event and 'total_cost' in event:
+                    total_input_tokens += event.get('input_tokens', 0)
+                    total_output_tokens += event.get('output_tokens', 0)
+                    total_cost += event.get('total_cost', 0.0)
+
+    except Exception as e:
+        print(f"Warning: Could not aggregate costs from react_log.jsonl: {e}")
+        # Return zero costs on error
+        return {
+            "input_tokens": 0,
+            "output_tokens": 0,
+            "total_cost": 0.0
+        }
+
+    return {
+        "input_tokens": total_input_tokens,
+        "output_tokens": total_output_tokens,
+        "total_cost": total_cost
+    }
+
+
 def setup_workspace(base_workspace: Optional[str], query_id: str) -> Path:
     """Set up workspace directory for the agent run."""
     if base_workspace:
@@ -359,17 +402,21 @@ def main():
             # Execute agent
             result = agent.execute_query(context, template_content)
 
-            # Estimate token usage (simplified - could be enhanced with actual tracking)
-            system_tokens = count_tokens(template_content, args.model)
-            query_tokens = count_tokens(args.task, args.model)
-            result_tokens = count_tokens(result, args.model)
+            # Aggregate actual costs from react_log.jsonl
+            cost_info = aggregate_costs_from_react_log(workspace_dir)
 
-            # Rough estimation for conversation overhead
-            total_input_tokens = system_tokens + query_tokens * 2  # Multiple conversation turns
-            total_output_tokens = result_tokens * 2  # Agent responses + tool outputs
+            # If no costs were found in react log (backward compatibility), fall back to estimation
+            if cost_info['total_cost'] == 0.0:
+                system_tokens = count_tokens(template_content, args.model)
+                query_tokens = count_tokens(args.task, args.model)
+                result_tokens = count_tokens(result, args.model)
 
-            # Calculate cost
-            cost_info = calculate_cost(total_input_tokens, total_output_tokens, args.model)
+                # Rough estimation for conversation overhead
+                total_input_tokens = system_tokens + query_tokens * 2  # Multiple conversation turns
+                total_output_tokens = result_tokens * 2  # Agent responses + tool outputs
+
+                # Calculate cost
+                cost_info = calculate_cost(total_input_tokens, total_output_tokens, args.model)
 
         except Exception as e:
             # Enhanced error logging
