@@ -822,7 +822,7 @@ def main():
     parser.add_argument("--max-tools", type=int, default=15, help="Maximum tool calls per query")
     parser.add_argument("--timeout", type=int, default=300, help="Timeout per script execution")
     parser.add_argument("--model", type=str, default="anthropic:claude-sonnet-4-20250514",
-                       help="Model to use")
+                       help="Model to use, e.g. 'anthropic:claude-sonnet-4-20250514' or 'ollama:llama3.1'")
     parser.add_argument("--output", type=str, default=None,
                        help="Output file for results (default: batch_results_TIMESTAMP.json)")
     parser.add_argument("--no-judge", action="store_true", help="Disable LLM judging of results")

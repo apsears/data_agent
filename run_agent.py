@@ -56,7 +56,7 @@ def build_parser() -> argparse.ArgumentParser:
         "--model",
         type=str,
         default=DEFAULT_MODEL,
-        help=f"Model to use, e.g. 'anthropic:claude-sonnet-4-20250514' (default: {DEFAULT_MODEL}).",
+        help=f"Model to use, e.g. 'anthropic:claude-sonnet-4-20250514' or 'ollama:llama3.1' (default: {DEFAULT_MODEL}).",
     )
     parser.add_argument(
         "--max-tools",

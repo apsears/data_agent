@@ -18,6 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import tiktoken
+from retry_ledger import RetryLedger, set_current_ledger, log_execution, log_pre_dispatch, log_post_process, print_retry_summary
 import yaml
 from dotenv import load_dotenv
 from jinja2 import Template
@@ -214,6 +215,17 @@ def count_tokens(text: str, model: str = "gpt-4o-mini") -> int:
 
 def calculate_cost(input_tokens: int, output_tokens: int, model: str) -> Dict[str, Any]:
     """Calculate the cost based on token usage and model pricing."""
+    # Local models (Ollama) are free
+    if model.startswith("ollama:"):
+        return {
+            "input_tokens": input_tokens,
+            "output_tokens": output_tokens,
+            "input_cost": 0.0,
+            "output_cost": 0.0,
+            "total_cost": 0.0,
+            "model": model
+        }
+
     clean_model = model.replace("anthropic:", "").replace("openai:", "")
     pricing_data = load_pricing_data(model)
 
@@ -481,6 +493,14 @@ def write_file_and_run_python(ctx: RunContext[AgentState], args: WriteRunArgs) -
     file_path = args.file_path
     content = args.content
 
+    # Log pre-dispatch phase to retry ledger
+    try:
+        log_pre_dispatch("write_file_and_run_python", {"file_path": file_path, "content_length": len(content)})
+    except Exception as e:
+        # Log validation error if args processing fails
+        log_pre_dispatch("write_file_and_run_python", {"raw_args": {"file_path": file_path, "content": content[:100]}}, str(e))
+        raise
+
     # Log tool call start
     state.log_react_event("tool_call_start", {
         "tool_name": "write_file_and_run_python",
@@ -595,6 +615,19 @@ def write_file_and_run_python(ctx: RunContext[AgentState], args: WriteRunArgs) -
             else:
                 state.add_tool_timing("write_file_and_run_python", start_time, end_time, True)
 
+            # Log execution phase to retry ledger
+            log_execution(
+                tool_name="write_file_and_run_python",
+                exit_code=result.returncode,
+                duration_s=duration,
+                stderr_path=str(stderr_log) if result.stderr else None,
+                stdout_tail=stdout_tail,
+                stderr_tail=stderr_tail
+            )
+
+            # Log post-process phase to retry ledger - tool result successfully returned
+            log_post_process("write_file_and_run_python")
+
             # Return structured result instead of text blob
             return WriteRunResult(
                 file_path=file_path,
@@ -659,14 +692,25 @@ def create_agent(model_name: str, template_content: str) -> Agent:
         model = AnthropicModel(model_name.replace("anthropic:", ""))
     elif model_name.startswith("openai:"):
         model = OpenAIModel(model_name.replace("openai:", ""))
+    elif model_name.startswith("ollama:"):
+        # Local Ollama model via OpenAI-compatible API
+        from pydantic_ai.models.openai import OpenAIChatModel
+        from pydantic_ai.providers.ollama import OllamaProvider
+
+        ollama_model_name = model_name.replace("ollama:", "")
+        model = OpenAIChatModel(
+            model_name=ollama_model_name,
+            provider=OllamaProvider(base_url='http://localhost:11434/v1')
+        )
     else:
         # Default to Anthropic if no prefix
         model = AnthropicModel(model_name)
 
-    # Create agent with tools
+    # Create agent with tools and retry configuration
     agent = Agent(
         model=model,
-        system_prompt=template_content
+        system_prompt=template_content,
+        retries=5  # Increased from 3 to handle complex temporal queries
     )
 
     # Register tools with timing - ONLY fused tool for script execution
@@ -922,6 +966,10 @@ def main():
         })
 
         try:
+            # Initialize retry ledger for this query
+            retry_ledger = RetryLedger(args.query_id, workspace_dir)
+            set_current_ledger(retry_ledger)
+
             # Execute agent and capture result
             result = agent.run_sync(args.task, deps=state)
 
@@ -1021,6 +1069,9 @@ def main():
                     "tool_in_question": "write_file_and_run_python",
                     "likely_cause": "second_tool_execution_failed"
                 }
+
+                # Print retry summary from ledger if this was a retry-related failure
+                print_retry_summary(str(e))
 
             state.log_react_event("agent_execution_complete", error_details)
 
