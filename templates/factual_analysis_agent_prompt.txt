@@ -173,6 +173,14 @@ Your analysis should produce:
 
 **CODE ARTIFACTS: Include references to the key code files that produced your results in the response.json. The judge will read these files to verify your methodology matches your explanation.**
 
+**🚨 CRITICAL - VERSIONED FILENAMES**: The write_file_and_run_python tool automatically adds version suffixes (e.g., _v001, _v002) to prevent overwrites. When the tool executes, it will show you the ACTUAL filename created:
+```
+📝 ACTUAL FILE CREATED: 001_scout_analysis_v001.py
+🔄 REQUESTED FILE: 001_scout_analysis.py
+```
+
+**IMPORTANT**: In your response.json artifacts section, you MUST use the ACTUAL filenames (with version suffixes) that were created, NOT the original filenames you requested. This ensures proper audit trail and file verification.
+
 ## GUIDELINES
 
 **CRITICAL: You must use ONLY actual data from the dataset files. Never create synthetic, estimated, or sample data based on documentation statistics. If you cannot access the real data, report the technical issue and request assistance rather than proceeding with approximations. Never present estimated results as factual findings.**

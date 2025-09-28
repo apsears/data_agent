@@ -138,10 +138,34 @@ class NativeToolExecutor:
         """Validate tool call arguments"""
         if tool_name == "write_file_and_run_python":
             if 'file_path' not in tool_input or 'content' not in tool_input:
+                missing_params = []
+                if 'file_path' not in tool_input:
+                    missing_params.append("file_path")
+                if 'content' not in tool_input:
+                    missing_params.append("content")
+
+                detailed_error = f"""
+🚨 TOOL CALL ERROR: write_file_and_run_python missing required parameter(s): {', '.join(missing_params)}
+
+❌ What you provided: {list(tool_input.keys())}
+✅ What is required: ["file_path", "content"]
+
+🔧 CORRECT USAGE EXAMPLE:
+{{
+  "file_path": "002_final_analysis.py",
+  "content": "#!/usr/bin/env python3\\nimport pandas as pd\\n# Your complete Python code here"
+}}
+
+⚠️  You MUST provide BOTH parameters:
+- file_path: The filename to create
+- content: The complete Python code as a string
+
+Please retry with BOTH parameters included."""
+
                 return ToolResult.error_result(
-                    "Missing required arguments: file_path and content",
+                    detailed_error,
                     ErrorCategory.VALIDATION_ERROR,
-                    "write_file_and_run_python requires file_path and content arguments"
+                    f"write_file_and_run_python missing required parameters: {', '.join(missing_params)}"
                 )
         elif tool_name == "read_file":
             if 'file_path' not in tool_input:
@@ -161,6 +185,31 @@ class NativeToolExecutor:
 
         return ToolResult.success_result("Validation passed")
 
+    def _get_versioned_filename(self, requested_path: str) -> str:
+        """Generate a versioned filename to prevent overwrites.
+
+        Args:
+            requested_path: The filename the agent requested (e.g., "001_scout_analysis.py")
+
+        Returns:
+            Versioned filename (e.g., "001_scout_analysis_v001.py")
+        """
+        path_obj = Path(requested_path)
+        base_name = path_obj.stem  # filename without extension
+        extension = path_obj.suffix  # .py
+        parent_dir = path_obj.parent
+
+        # Check if file already exists, and if so, increment version
+        version = 1
+        while True:
+            versioned_name = f"{base_name}_v{version:03d}{extension}"
+            versioned_path = parent_dir / versioned_name
+            full_path = self.context.workspace_dir / versioned_path
+
+            if not full_path.exists():
+                return str(versioned_path)
+            version += 1
+
     def _execute_tool_directly(self, tool_name: str, tool_input: Dict[str, Any]) -> ToolResult:
         """Direct execution without framework abstraction"""
         if tool_name == "write_file_and_run_python":
@@ -176,24 +225,28 @@ class NativeToolExecutor:
             )
 
     def _execute_python_tool(self, tool_input: dict) -> ToolResult:
-        """Direct Python execution with full visibility"""
+        """Direct Python execution with full visibility and automatic versioning"""
         start_time = time.time()
-        file_path = tool_input['file_path']
+        requested_file_path = tool_input['file_path']
         content = tool_input['content']
 
         try:
-            # Step 1: Write the file
-            full_path = self.context.workspace_dir / file_path
+            # Step 1: Generate versioned filename to prevent overwrites
+            actual_file_path = self._get_versioned_filename(requested_file_path)
+            full_path = self.context.workspace_dir / actual_file_path
             full_path.parent.mkdir(parents=True, exist_ok=True)
 
             with open(full_path, 'w', encoding='utf-8') as f:
                 f.write(content)
 
-            # Step 2: Execute the script
+            # Log the actual filename used for audit trail
+            print(f"📝 Created file: {actual_file_path} (requested: {requested_file_path})")
+
+            # Step 2: Execute the script using the actual filename
             logs_dir = self.context.workspace_dir.parent / "logs"
             logs_dir.mkdir(parents=True, exist_ok=True)
 
-            task_id = f"{int(time.time())}-{file_path.replace('/', '_').replace('.py', '')}"
+            task_id = f"{int(time.time())}-{actual_file_path.replace('/', '_').replace('.py', '')}"
             stdout_log = (logs_dir / f"stdout-{task_id}.log").resolve()
             stderr_log = (logs_dir / f"stderr-{task_id}.log").resolve()
 
@@ -223,7 +276,7 @@ class NativeToolExecutor:
 
             try:
                 result = subprocess.run(
-                    [venv_python, file_path],
+                    [venv_python, actual_file_path],
                     capture_output=True,
                     text=True,
                     timeout=300,  # 5 minute timeout
@@ -241,8 +294,11 @@ class NativeToolExecutor:
                 duration = time.time() - start_time
                 success = result.returncode == 0
 
-                # Create comprehensive output message
-                output = f"Successfully executed {file_path} (exit code: {result.returncode}, duration: {duration:.1f}s)\n"
+                # Create comprehensive output message with actual filename
+                output = f"Successfully executed {actual_file_path} (originally requested: {requested_file_path}, exit code: {result.returncode}, duration: {duration:.1f}s)\n"
+                output += f"📝 ACTUAL FILE CREATED: {actual_file_path}\n"
+                output += f"🔄 REQUESTED FILE: {requested_file_path}\n\n"
+
                 if result.stdout:
                     output += f"STDOUT:\n{result.stdout}\n"
                 if result.stderr:
@@ -355,17 +411,17 @@ class NativeReActExecutor:
         self.tools = [
             {
                 "name": "write_file_and_run_python",
-                "description": "Write a Python script to a file and execute it in the workspace",
+                "description": "Write a Python script to a file and execute it in the workspace. CRITICAL: Both file_path AND content parameters are MANDATORY - you must provide the complete Python code in the content parameter.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
                         "file_path": {
                             "type": "string",
-                            "description": "Path to the Python file to create (e.g., 'analysis.py')"
+                            "description": "Path to the Python file to create (e.g., 'analysis.py') - REQUIRED"
                         },
                         "content": {
                             "type": "string",
-                            "description": "Python code content to write and execute"
+                            "description": "Complete Python code content to write and execute - REQUIRED. Never omit this parameter. Must contain the full script code."
                         }
                     },
                     "required": ["file_path", "content"]
@@ -417,7 +473,7 @@ class NativeReActExecutor:
                 # Make API call with native tool support
                 response = self.client.messages.create(
                     model=self.model_name.replace("anthropic:", ""),
-                    max_tokens=4000,
+                    max_tokens=8000,  # Increased from 4000 to allow complete tool calls
                     messages=self.conversation_history,
                     system=system_prompt,
                     tools=self.tools

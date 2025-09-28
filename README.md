@@ -1,15 +1,40 @@
 # Claude Data Agent
 
-> **🚀 September 2025 Update:** This project has been completely migrated from PydanticAI to **native Anthropic tool calling** with massive improvements: 86.5% cost reduction, 5/5 accuracy scores, and simplified architecture. See [migration docs](docs/2025_09_27_20_45_pydantic_ai_removal_complete.md) for details.
+> **🚀 September 2025 Update:** This project has been completely migrated from PydanticAI to **native Anthropic tool calling** with massive improvements: 86.5% cost reduction, 5/5 accuracy scores, and simplified architecture. The system now includes automatic file versioning and deterministic execution. See [migration docs](docs/2025_09_27_20_45_pydantic_ai_removal_complete.md) for details.
 
 A sophisticated agentic system built with **native Anthropic tool calling** that gives Claude the ability to:
-- Write and execute Python scripts in isolated workspaces
-- Implement ReAct (Reasoning-Acting-Observing) patterns
-- Generate detailed JSON logs of each reasoning stage
+- Write and execute Python scripts in isolated workspaces with automatic versioning
+- Implement ReAct (Reasoning-Acting-Observing) patterns with full transparency
+- Generate detailed JSON logs of each reasoning stage and tool execution
 - Load configuration from YAML files with environment variable support
-- Run completely autonomous data analysis tasks
+- Run completely autonomous data analysis tasks with comprehensive audit trails
+- Prevent file overwrites through automatic `_v001`, `_v002` versioning
+- Execute deterministic batch processing with retry ledger instrumentation
 
-This project demonstrates both basic agent functionality and advanced ReAct loop implementations with full observability through structured JSON logging.
+This project demonstrates both basic agent functionality and advanced ReAct loop implementations with full observability through structured JSON logging and comprehensive error handling.
+
+## Key Features
+
+### 🔄 **Automatic File Versioning**
+- Prevents file overwrites with automatic `_v001`, `_v002`, etc. suffixes
+- Complete audit trail of all script executions
+- Tool communicates actual filenames back to agent for proper artifact tracking
+
+### 🔍 **Native Transparent Agent**
+- Direct Anthropic API integration with native tool calling
+- Enhanced error messages and validation
+- Configurable token limits and timeout handling
+- Comprehensive debugging and observability
+
+### 📊 **Retry Ledger System**
+- Tracks tool execution attempts and outcomes
+- Distinguishes between genuine failures and framework issues
+- Comprehensive error categorization and analysis
+
+### ⚙️ **Deterministic Execution**
+- Resolved nondeterministic failures through token limit optimization
+- Enhanced tool schema validation
+- Improved error communication between tools and agent
 
 ## Examples
 
