@@ -1,16 +1,15 @@
 #!/usr/bin/env python3
-"""Simple single-query interface that reuses the batch runner workflow."""
+"""Simple single-query interface using the transparent agent framework."""
 
 from __future__ import annotations
 
 import argparse
 import json
+import subprocess
 import sys
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, Optional
-
-from run_batch_queries import run_single_query
 
 DEFAULT_TEMPLATE = "templates/data_analysis_agent_prompt.txt"
 DEFAULT_MODEL = "anthropic:claude-sonnet-4-20250514"
@@ -154,6 +153,61 @@ def display_final_result(result: Dict[str, Any]) -> None:
             print(f"Execution time: {result['execution_time']:.1f}s")
 
 
+def run_transparent_agent(task: str, query_id: str, base_args: list[str]) -> Dict[str, Any]:
+    """Run the transparent agent executor directly."""
+
+    # Build command for transparent agent executor
+    cmd = [
+        sys.executable,
+        "transparent_agent_executor.py",
+        "--task", task,
+        "--query-id", query_id
+    ] + base_args
+
+    start_time = datetime.now()
+
+    try:
+        # Run the transparent agent executor
+        result = subprocess.run(
+            cmd,
+            capture_output=True,
+            text=True,
+            timeout=1800  # 30 minute timeout
+        )
+
+        end_time = datetime.now()
+        execution_time = (end_time - start_time).total_seconds()
+
+        if result.returncode == 0:
+            return {
+                "success": True,
+                "execution_time": execution_time,
+                "stdout": result.stdout,
+                "stderr": result.stderr
+            }
+        else:
+            return {
+                "success": False,
+                "execution_time": execution_time,
+                "error": f"Agent execution failed with exit code {result.returncode}",
+                "stdout": result.stdout,
+                "stderr": result.stderr
+            }
+
+    except subprocess.TimeoutExpired:
+        return {
+            "success": False,
+            "execution_time": 1800,
+            "error": "Agent execution timed out after 30 minutes"
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "execution_time": 0,
+            "error": f"Failed to run agent: {str(e)}"
+        }
+
+
 def main() -> None:
     parser = build_parser()
     args = parser.parse_args()
@@ -163,10 +217,15 @@ def main() -> None:
 
     base_args = build_base_args(args)
 
-    query = {"id": query_id, "category": "cli", "query": task}
-
     try:
-        result = run_single_query(query, base_args, stream=not args.no_stream, worker_id=0)
+        result = run_transparent_agent(task, query_id, base_args)
+
+        # Print output if not streaming was disabled
+        if not args.no_stream and result.get("stdout"):
+            print(result["stdout"])
+        if result.get("stderr"):
+            print(result["stderr"], file=sys.stderr)
+
     except KeyboardInterrupt:
         print("\nQuery interrupted by user")
         sys.exit(130)
