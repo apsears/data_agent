@@ -1,0 +1,75 @@
+# MVP Idea Generation Configuration
+# Separate from main system config for complete isolation
+
+idea_generation:
+  inspiration_sources:
+    events: "data/event_inspiration.md"
+    techniques: "data/technique_inspiration.md"
+
+  seed_generation:
+    n_event_driven: 5
+    n_technique_driven: 5
+    n_hybrid: 5
+    n_trader_questions: 5
+    total_seeds: 20
+
+  evolution:
+    operators_per_seed: 3
+    max_evolution_depth: 2
+    diversity_threshold: 0.3
+
+  execution:
+    sample_size: 5
+    timeout_per_idea: 300
+    max_tools: 15
+    model: "anthropic:claude-sonnet-4-20250514"
+
+  scoring:
+    weights:
+      domain_relevance: 0.3
+      trader_value: 0.3
+      technical_rigor: 0.2
+      novelty: 0.2
+
+    rubric_thresholds:
+      minimum_score: 0.6
+      high_value: 0.8
+
+# Pipeline-specific domain knowledge
+domain:
+  major_pipelines:
+    - "Gulf South Pipeline Company, LP"
+    - "Texas Eastern Transmission, LP"
+    - "Transcontinental Gas Pipe Line Company, LLC"
+    - "Tennessee Gas Pipeline Company, L.L.C."
+    - "Northwest Pipeline GP"
+
+  key_events:
+    - name: "Freeport LNG Outage"
+      start: "2022-06-08"
+      end: "2023-02-01"
+
+    - name: "Mountain Valley Pipeline"
+      start: "2024-06-14"
+
+    - name: "Matterhorn Express"
+      start: "2024-10-01"
+
+    - name: "Winter Storm Elliott"
+      start: "2022-12-23"
+      end: "2022-12-26"
+
+  analysis_categories:
+    - "LNG impact"
+    - "Constraint detection"
+    - "Storage dynamics"
+    - "Weather response"
+    - "Infrastructure expansion"
+    - "Lead-lag patterns"
+
+  trader_priorities:
+    - "Locational spreads"
+    - "Capacity constraints"
+    - "Elasticities"
+    - "Structural breaks"
+    - "Substitution patterns"

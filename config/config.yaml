@@ -7,6 +7,13 @@ agent:
   timeout_sec: 60
   allow_network: false
 
+explicit_react:
+  enabled: false  # Enable with --react-explicit CLI flag
+  analyst_model: "claude-3-5-sonnet-20241022"
+  critic_model: "gpt-4o-mini"
+  enable_critic: false  # Enable with --critic CLI flag
+  max_iterations: 10
+
 react_demo:
   target_number: 5
   max_cycles: 10

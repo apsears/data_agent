@@ -20,6 +20,7 @@ from enum import Enum
 
 import anthropic
 import tiktoken
+import litellm
 from retry_ledger import RetryLedger, set_current_ledger, log_execution, log_pre_dispatch, log_post_process
 
 
@@ -617,6 +618,375 @@ class NativeTransparentAgent:
             raise
 
 
+class ExplicitReActExecutor:
+    """Formal ReAct loop with explicit reasoning and automatic critic evaluation"""
+
+    def __init__(self, context: AgentContext, analyst_model: str = "claude-3-5-sonnet-20241022",
+                 critic_model: str = "gpt-4o-mini", enable_critic: bool = True):
+        self.context = context
+        self.analyst_model = analyst_model
+        self.critic_model = critic_model
+        self.enable_critic = enable_critic
+        self.anthropic_client = anthropic.Anthropic()
+        self.tool_executor = NativeToolExecutor(context)
+
+        # ReAct conversation state
+        self.conversation_history = []
+        self.react_steps = []
+
+        # Tool definitions (same as NativeReActExecutor)
+        self.tools = [
+            {
+                "name": "write_file_and_run_python",
+                "description": "Write a Python script to a file and execute it in the workspace. CRITICAL: Both file_path AND content parameters are MANDATORY - you must provide the complete Python code in the content parameter.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the Python file to create (e.g., 'analysis.py') - REQUIRED"
+                        },
+                        "content": {
+                            "type": "string",
+                            "description": "Complete Python code content to write and execute - REQUIRED. Never omit this parameter. Must contain the full script code."
+                        }
+                    },
+                    "required": ["file_path", "content"]
+                }
+            },
+            {
+                "name": "read_file",
+                "description": "Read the contents of a file in the workspace",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the file to read"
+                        }
+                    },
+                    "required": ["file_path"]
+                }
+            },
+            {
+                "name": "list_files",
+                "description": "List all files and directories in the workspace",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                }
+            },
+            {
+                "name": "stop",
+                "description": "Stop the ReAct loop and provide final answer",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "final_answer": {
+                            "type": "string",
+                            "description": "Final answer or conclusion to the query"
+                        }
+                    },
+                    "required": ["final_answer"]
+                }
+            }
+        ]
+
+    def _call_critic(self, step_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Call OpenAI critic to evaluate the current step"""
+        try:
+            critic_prompt = f"""You are a critical evaluator of a ReAct (Reasoning-Action-Observation) step in a data analysis workflow.
+
+Evaluate this step and provide feedback:
+
+THOUGHT: {step_data.get('thought', 'N/A')}
+ACTION: {step_data.get('action_type', 'N/A')} with parameters: {step_data.get('action_params', 'N/A')}
+OBSERVATION: {step_data.get('observation', 'N/A')[:500]}...
+
+Provide feedback in this JSON format:
+{{
+    "quality_score": <1-10 integer>,
+    "reasoning_clarity": <1-10 integer>,
+    "action_appropriateness": <1-10 integer>,
+    "progress_made": <1-10 integer>,
+    "issues": ["list", "of", "issues"],
+    "suggestions": ["list", "of", "suggestions"],
+    "should_continue": <true/false>
+}}
+
+Focus on: logical reasoning, appropriate tool choice, progress toward goal, and overall quality."""
+
+            response = litellm.completion(
+                model=self.critic_model,
+                messages=[
+                    {"role": "system", "content": "You are a critical evaluator providing structured feedback."},
+                    {"role": "user", "content": critic_prompt}
+                ],
+                temperature=0.3,
+                max_tokens=500
+            )
+
+            feedback_text = response.choices[0].message.content
+
+            # Try to parse JSON, fallback to text if parsing fails
+            try:
+                import json
+                feedback = json.loads(feedback_text)
+            except json.JSONDecodeError:
+                feedback = {
+                    "quality_score": 5,
+                    "reasoning_clarity": 5,
+                    "action_appropriateness": 5,
+                    "progress_made": 5,
+                    "issues": ["Could not parse critic response"],
+                    "suggestions": [feedback_text],
+                    "should_continue": True
+                }
+
+            return feedback
+
+        except Exception as e:
+            self.context.console_update(f"Critic evaluation failed: {str(e)}")
+            return {
+                "quality_score": 5,
+                "reasoning_clarity": 5,
+                "action_appropriateness": 5,
+                "progress_made": 5,
+                "issues": [f"Critic error: {str(e)}"],
+                "suggestions": ["Continue without critic feedback"],
+                "should_continue": True
+            }
+
+    def execute_react_cycle(self, system_prompt: str, user_query: str, max_iterations: int = 10) -> str:
+        """Execute formal ReAct cycle with explicit reasoning and automatic critic"""
+
+        self.conversation_history = [{"role": "user", "content": user_query}]
+
+        self.context.log_react_event("explicit_react_cycle_start", {
+            "max_iterations": max_iterations,
+            "analyst_model": self.analyst_model,
+            "critic_model": self.critic_model,
+            "critic_enabled": self.enable_critic,
+            "user_query": user_query
+        })
+
+        for iteration in range(max_iterations):
+            self.context.log_react_event("explicit_react_iteration_start", {
+                "iteration": iteration,
+                "conversation_length": len(self.conversation_history)
+            })
+
+            try:
+                # Get analyst response
+                response = self.anthropic_client.messages.create(
+                    model=self.analyst_model.replace("anthropic:", ""),
+                    max_tokens=8000,
+                    messages=self.conversation_history,
+                    system=system_prompt,
+                    tools=self.tools
+                )
+
+                assistant_content = ""
+                tool_results = []
+                step_data = {"iteration": iteration}
+
+                # Process response content - extract thought and action
+                for content_block in response.content:
+                    if content_block.type == "text":
+                        assistant_content += content_block.text
+                        step_data["thought"] = content_block.text
+                    elif content_block.type == "tool_use":
+                        # Extract action details
+                        tool_name = content_block.name
+                        tool_input = content_block.input
+                        tool_use_id = content_block.id
+
+                        step_data["action_type"] = tool_name
+                        step_data["action_params"] = tool_input
+
+                        self.context.log_react_event("explicit_tool_execution_start", {
+                            "iteration": iteration,
+                            "tool_name": tool_name,
+                            "tool_input": tool_input,
+                            "tool_use_id": tool_use_id
+                        })
+
+                        # Special handling for 'stop' action
+                        if tool_name == "stop":
+                            final_answer = tool_input.get("final_answer", assistant_content)
+                            self.context.log_react_event("explicit_react_cycle_complete", {
+                                "final_iteration": iteration,
+                                "completion_reason": "stop_action_called",
+                                "final_answer": final_answer
+                            })
+                            return final_answer
+
+                        # Execute the tool
+                        tool_result = self.tool_executor.execute_tool(tool_name, tool_input)
+                        step_data["observation"] = tool_result.content
+
+                        self.context.log_react_event("explicit_tool_execution_complete", {
+                            "iteration": iteration,
+                            "tool_name": tool_name,
+                            "success": tool_result.success,
+                            "result_length": len(tool_result.content),
+                            "duration": tool_result.duration
+                        })
+
+                        # Add tool result to conversation
+                        tool_results.append({
+                            "type": "tool_result",
+                            "tool_use_id": tool_use_id,
+                            "content": tool_result.content,
+                            "is_error": not tool_result.success
+                        })
+
+                # Store the step
+                self.react_steps.append(step_data)
+
+                # Run critic evaluation if enabled and we have tool actions
+                if self.enable_critic and tool_results:
+                    self.context.console_update(f"Running critic evaluation for iteration {iteration}...")
+                    critic_feedback = self._call_critic(step_data)
+                    step_data["critic_feedback"] = critic_feedback
+
+                    self.context.log_react_event("critic_evaluation", {
+                        "iteration": iteration,
+                        "quality_score": critic_feedback.get("quality_score", 0),
+                        "should_continue": critic_feedback.get("should_continue", True),
+                        "issues": critic_feedback.get("issues", []),
+                        "suggestions": critic_feedback.get("suggestions", [])
+                    })
+
+                    # Add critic feedback to conversation
+                    critic_message = f"\n\n**CRITIC FEEDBACK:**\n"
+                    critic_message += f"Quality Score: {critic_feedback.get('quality_score', 'N/A')}/10\n"
+                    critic_message += f"Issues: {', '.join(critic_feedback.get('issues', []))}\n"
+                    critic_message += f"Suggestions: {', '.join(critic_feedback.get('suggestions', []))}\n"
+
+                    # Append critic feedback to the last tool result
+                    if tool_results:
+                        tool_results[-1]["content"] += critic_message
+
+                # Add assistant message to conversation
+                assistant_message = {"role": "assistant", "content": []}
+                if assistant_content:
+                    assistant_message["content"].append({"type": "text", "text": assistant_content})
+
+                # Add tool uses to assistant message
+                for content_block in response.content:
+                    if content_block.type == "tool_use":
+                        assistant_message["content"].append({
+                            "type": "tool_use",
+                            "id": content_block.id,
+                            "name": content_block.name,
+                            "input": content_block.input
+                        })
+
+                self.conversation_history.append(assistant_message)
+
+                # Add tool results if any
+                if tool_results:
+                    self.conversation_history.append({
+                        "role": "user",
+                        "content": tool_results
+                    })
+
+                # Check if we should continue
+                if not tool_results:
+                    # No tools were called, treat as final answer
+                    self.context.log_react_event("explicit_react_cycle_complete", {
+                        "final_iteration": iteration,
+                        "completion_reason": "no_tools_called"
+                    })
+                    return assistant_content
+
+                self.context.log_react_event("explicit_model_response", {
+                    "iteration": iteration,
+                    "response_length": len(assistant_content),
+                    "tools_called": len(tool_results),
+                    "critic_enabled": self.enable_critic
+                })
+
+            except Exception as e:
+                self.context.log_react_event("explicit_react_cycle_error", {
+                    "iteration": iteration,
+                    "error": str(e),
+                    "error_type": type(e).__name__
+                })
+                return f"Error in Explicit ReAct cycle: {str(e)}"
+
+        # Max iterations reached
+        self.context.log_react_event("explicit_react_cycle_complete", {
+            "final_iteration": max_iterations,
+            "completion_reason": "max_iterations_reached"
+        })
+
+        return "Maximum iterations reached. The agent was unable to complete the task within the allowed number of steps."
+
+
+class ExplicitReActAgent:
+    """Agent using formal ReAct loop with automatic critic evaluation"""
+
+    def __init__(self, analyst_model: str = "claude-3-5-sonnet-20241022",
+                 critic_model: str = "gpt-4o-mini", enable_critic: bool = True, max_iterations: int = 10):
+        self.analyst_model = analyst_model
+        self.critic_model = critic_model
+        self.enable_critic = enable_critic
+        self.max_iterations = max_iterations
+
+    def execute_query(self, context: AgentContext, system_prompt: str) -> str:
+        """Main execution loop with explicit ReAct and critic"""
+
+        context.log_react_event("explicit_agent_execution_start", {
+            "analyst_model": self.analyst_model,
+            "critic_model": self.critic_model,
+            "enable_critic": self.enable_critic,
+            "max_iterations": self.max_iterations,
+            "query": context.query
+        })
+
+        # Create explicit ReAct executor
+        react_executor = ExplicitReActExecutor(
+            context,
+            self.analyst_model,
+            self.critic_model,
+            self.enable_critic
+        )
+
+        try:
+            # Execute ReAct cycle
+            result = react_executor.execute_react_cycle(
+                system_prompt,
+                context.query,
+                self.max_iterations
+            )
+
+            context.log_react_event("explicit_agent_execution_complete", {
+                "success": True,
+                "result_length": len(result),
+                "steps_completed": len(react_executor.react_steps)
+            })
+
+            return result
+
+        except Exception as e:
+            context.log_react_event("explicit_agent_execution_error", {
+                "error": str(e),
+                "error_type": type(e).__name__
+            })
+            raise
+
+
 def create_native_transparent_agent(model_name: str, max_iterations: int = 10) -> NativeTransparentAgent:
     """Create a native transparent agent with the specified model"""
     return NativeTransparentAgent(model_name, max_iterations)
+
+
+def create_explicit_react_agent(analyst_model: str = "claude-3-5-sonnet-20241022",
+                                critic_model: str = "gpt-4o-mini",
+                                enable_critic: bool = True,
+                                max_iterations: int = 10) -> ExplicitReActAgent:
+    """Create an explicit ReAct agent with critic evaluation"""
+    return ExplicitReActAgent(analyst_model, critic_model, enable_critic, max_iterations)

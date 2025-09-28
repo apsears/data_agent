@@ -24,7 +24,10 @@ from dotenv import load_dotenv
 from jinja2 import Template
 from pydantic import BaseModel, Field
 
-from native_transparent_agent import NativeTransparentAgent, AgentContext, create_native_transparent_agent
+from native_transparent_agent import (
+    NativeTransparentAgent, AgentContext, create_native_transparent_agent,
+    ExplicitReActAgent, create_explicit_react_agent
+)
 
 # Load environment variables
 load_dotenv()
@@ -246,8 +249,20 @@ def main():
                        help="Configuration file")
     parser.add_argument("--console-updates", action="store_true",
                        help="Enable console update messages")
+    parser.add_argument("--react-explicit", action="store_true",
+                       help="Use explicit ReAct loop with formal reasoning")
+    parser.add_argument("--critic", action="store_true",
+                       help="Enable automatic critic evaluation (requires --react-explicit)")
+    parser.add_argument("--critic-model", default="gpt-4o-mini",
+                       help="Model to use for critic evaluation")
+    parser.add_argument("--analyst-model", default="claude-3-5-sonnet-20241022",
+                       help="Model to use for analyst reasoning (when using --react-explicit)")
 
     args = parser.parse_args()
+
+    # Validate arguments
+    if args.critic and not args.react_explicit:
+        parser.error("--critic requires --react-explicit to be enabled")
 
     # Load configuration
     config = {}
@@ -297,10 +312,20 @@ def main():
             rubric=rubric
         )
 
-        # Create native transparent agent
-        if context.console_updates_enabled:
-            print(f"Creating native transparent agent with model: {args.model}")
-        agent = create_native_transparent_agent(args.model, args.max_tools)
+        # Create agent based on configuration
+        if args.react_explicit:
+            if context.console_updates_enabled:
+                print(f"Creating explicit ReAct agent (analyst: {args.analyst_model}, critic: {args.critic_model if args.critic else 'disabled'})")
+            agent = create_explicit_react_agent(
+                analyst_model=args.analyst_model,
+                critic_model=args.critic_model,
+                enable_critic=args.critic,
+                max_iterations=args.max_tools
+            )
+        else:
+            if context.console_updates_enabled:
+                print(f"Creating native transparent agent with model: {args.model}")
+            agent = create_native_transparent_agent(args.model, args.max_tools)
 
         # Log task start
         context.log_react_event("task_start", {
@@ -409,6 +434,10 @@ def main():
             "query": args.task,
             "template_used": template_path,
             "model": args.model,
+            "agent_type": "explicit_react" if args.react_explicit else "native_transparent",
+            "analyst_model": args.analyst_model if args.react_explicit else None,
+            "critic_model": args.critic_model if args.react_explicit and args.critic else None,
+            "critic_enabled": args.critic if args.react_explicit else False,
             "timestamp": datetime.now().isoformat(),
             "workspace_dir": str(workspace_dir),
             "success": True,
