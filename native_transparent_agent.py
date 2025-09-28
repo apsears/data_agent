@@ -23,6 +23,44 @@ import tiktoken
 import litellm
 from retry_ledger import RetryLedger, set_current_ledger, log_execution, log_pre_dispatch, log_post_process
 
+# Configure litellm to drop unsupported parameters for GPT-5 models
+litellm.drop_params = True
+
+
+def calculate_token_cost(model_name: str, input_tokens: int, output_tokens: int) -> float:
+    """Calculate cost for model usage based on token counts and pricing data."""
+    # Determine which pricing file to use based on model name
+    if model_name.startswith("openai:") or model_name.startswith("gpt-"):
+        pricing_file = Path("config/openai_pricing.tsv")
+    else:
+        pricing_file = Path("config/anthropic_pricing.tsv")
+
+    import pandas as pd
+    df = pd.read_csv(pricing_file, sep='\t')
+
+    model_key = model_name.replace("anthropic:", "").replace("openai:", "")
+    model_row = df[df['Model'] == model_key]
+
+    if model_row.empty:
+        raise ValueError(f"Pricing data not found for model: {model_name}")
+
+    # Get input and output rates, handling both string ($0.25) and numeric (3.00) formats
+    input_value = model_row.iloc[0]['Input']
+    output_value = model_row.iloc[0]['Output']
+
+    # Convert to float, removing $ if present
+    if isinstance(input_value, str) and input_value.startswith('$'):
+        input_rate = float(input_value.replace('$', ''))
+    else:
+        input_rate = float(input_value)
+
+    if isinstance(output_value, str) and output_value.startswith('$'):
+        output_rate = float(output_value.replace('$', ''))
+    else:
+        output_rate = float(output_value)
+
+    return (input_tokens / 1_000_000) * input_rate + (output_tokens / 1_000_000) * output_rate
+
 
 class ErrorCategory(Enum):
     """Precise error categorization for surgical debugging"""
@@ -64,6 +102,7 @@ class AgentContext:
     dataset_description: str
     analysis_type: str
     rubric: Dict[str, Any]
+    config: Dict[str, Any]
     console_updates_enabled: bool = True
     react_log_path: Optional[Path] = None
     tool_timings: List[Dict[str, Any]] = None
@@ -474,7 +513,7 @@ class NativeReActExecutor:
                 # Make API call with native tool support
                 response = self.client.messages.create(
                     model=self.model_name.replace("anthropic:", ""),
-                    max_tokens=8000,  # Increased from 4000 to allow complete tool calls
+                    max_tokens=self.analyst_max_tokens,
                     messages=self.conversation_history,
                     system=system_prompt,
                     tools=self.tools
@@ -621,12 +660,15 @@ class NativeTransparentAgent:
 class ExplicitReActExecutor:
     """Formal ReAct loop with explicit reasoning and automatic critic evaluation"""
 
-    def __init__(self, context: AgentContext, analyst_model: str = "claude-3-5-sonnet-20241022",
-                 critic_model: str = "gpt-4o-mini", enable_critic: bool = True):
+    def __init__(self, context: AgentContext, analyst_model: str,
+                 critic_model: str, enable_critic: bool = True,
+                 analyst_max_tokens: int = 16000, critic_max_tokens: int = 16000):
         self.context = context
         self.analyst_model = analyst_model
         self.critic_model = critic_model
         self.enable_critic = enable_critic
+        self.analyst_max_tokens = analyst_max_tokens
+        self.critic_max_tokens = critic_max_tokens
         self.anthropic_client = anthropic.Anthropic()
         self.tool_executor = NativeToolExecutor(context)
 
@@ -693,29 +735,74 @@ class ExplicitReActExecutor:
             }
         ]
 
-    def _call_critic(self, step_data: Dict[str, Any]) -> Dict[str, Any]:
-        """Call OpenAI critic to evaluate the current step"""
+    def _call_critic(self, step_data: Dict[str, Any], original_query: str = None, previous_critic_feedback: List[Dict] = None) -> Dict[str, Any]:
+        """Call OpenAI critic to evaluate the current step with full context"""
         try:
-            critic_prompt = f"""You are a critical evaluator of a ReAct (Reasoning-Action-Observation) step in a data analysis workflow.
+            # Extract code and results if action was code execution
+            executed_code = ""
+            execution_results = ""
+            if step_data.get('action_type') == 'write_file_and_run_python':
+                action_params = step_data.get('action_params', {})
+                executed_code = action_params.get('content', '')
+                execution_results = step_data.get('observation', '')
 
-Evaluate this step and provide feedback:
+            # Build context from previous critic feedback
+            previous_feedback_context = ""
+            if previous_critic_feedback:
+                previous_feedback_context = "\n\nPREVIOUS CRITIC FEEDBACK:\n"
+                for i, feedback in enumerate(previous_critic_feedback[-2:]):  # Last 2 feedbacks
+                    previous_feedback_context += f"Step {i}: Issues: {feedback.get('issues', [])} | Suggestions: {feedback.get('suggestions', [])}\n"
 
+            critic_prompt = f"""You are a world-class expert in causal inference methodologies and quantitative trading strategies, evaluating a ReAct (Reasoning-Action-Observation) step in a data analysis workflow.
+
+EXPERTISE AREAS:
+- Causal inference (Difference-in-Differences, Instrumental Variables, Regression Discontinuity, Event Studies)
+- Time series econometrics and interrupted time series analysis
+- Natural gas and energy markets trading strategies
+- Pipeline flow analysis and market impact assessment
+- Statistical methodology and experimental design
+
+ORIGINAL RESEARCH QUESTION: {original_query or 'Not provided'}
+
+CURRENT STEP ANALYSIS:
 THOUGHT: {step_data.get('thought', 'N/A')}
-ACTION: {step_data.get('action_type', 'N/A')} with parameters: {step_data.get('action_params', 'N/A')}
-OBSERVATION: {step_data.get('observation', 'N/A')[:500]}...
+ACTION: {step_data.get('action_type', 'N/A')} with parameters: {step_data.get('action_params', {})}
 
-Provide feedback in this JSON format:
+EXECUTED CODE (if applicable):
+```python
+{executed_code[:2000] if executed_code else 'No code executed'}
+```
+
+EXECUTION RESULTS:
+{execution_results[:1500] if execution_results else 'No results available'}
+
+{previous_feedback_context}
+
+CAUSAL INFERENCE ASSESSMENT:
+As an expert in causal inference and trading strategies, evaluate whether this step represents an appropriately designed causal analysis. Consider:
+
+1. IDENTIFICATION STRATEGY: Does the approach establish causal identification?
+2. CONFOUNDING CONTROLS: Are potential confounders addressed?
+3. TEMPORAL ANALYSIS: Is the timing of treatment/event properly handled?
+4. STATISTICAL RIGOR: Are appropriate econometric methods used?
+5. TRADING RELEVANCE: Does this provide actionable market intelligence?
+6. DATA VALIDITY: Is the data appropriate for causal claims?
+
+Provide detailed feedback in this JSON format:
 {{
     "quality_score": <1-10 integer>,
-    "reasoning_clarity": <1-10 integer>,
-    "action_appropriateness": <1-10 integer>,
-    "progress_made": <1-10 integer>,
-    "issues": ["list", "of", "issues"],
-    "suggestions": ["list", "of", "suggestions"],
-    "should_continue": <true/false>
+    "causal_inference_rigor": <1-10 integer>,
+    "trading_strategy_relevance": <1-10 integer>,
+    "statistical_methodology": <1-10 integer>,
+    "data_appropriateness": <1-10 integer>,
+    "issues": ["list", "of", "specific", "methodological", "issues"],
+    "suggestions": ["detailed", "improvement", "recommendations"],
+    "improved_code": "If applicable, provide improved Python code that addresses identified issues",
+    "allow_finish": <true/false>,
+    "causal_assessment": "Brief assessment of whether this constitutes proper causal analysis"
 }}
 
-Focus on: logical reasoning, appropriate tool choice, progress toward goal, and overall quality."""
+CRITICAL FOCUS: This should be a rigorous causal inference analysis, not just descriptive statistics. Evaluate accordingly."""
 
             response = litellm.completion(
                 model=self.critic_model,
@@ -724,10 +811,15 @@ Focus on: logical reasoning, appropriate tool choice, progress toward goal, and 
                     {"role": "user", "content": critic_prompt}
                 ],
                 temperature=0.3,
-                max_tokens=500
+                max_tokens=self.critic_max_tokens
             )
 
             feedback_text = response.choices[0].message.content
+
+            # Extract token usage from critic response
+            critic_input_tokens = getattr(response.usage, 'prompt_tokens', 0) if hasattr(response, 'usage') else 0
+            critic_output_tokens = getattr(response.usage, 'completion_tokens', 0) if hasattr(response, 'usage') else 0
+            critic_total_cost = calculate_token_cost(self.critic_model, critic_input_tokens, critic_output_tokens)
 
             # Try to parse JSON, fallback to text if parsing fails
             try:
@@ -736,13 +828,24 @@ Focus on: logical reasoning, appropriate tool choice, progress toward goal, and 
             except json.JSONDecodeError:
                 feedback = {
                     "quality_score": 5,
-                    "reasoning_clarity": 5,
-                    "action_appropriateness": 5,
-                    "progress_made": 5,
+                    "causal_inference_rigor": 5,
+                    "trading_strategy_relevance": 5,
+                    "statistical_methodology": 5,
+                    "data_appropriateness": 5,
                     "issues": ["Could not parse critic response"],
                     "suggestions": [feedback_text],
-                    "should_continue": True
+                    "improved_code": "",
+                    "allow_finish": False,
+                    "causal_assessment": "Unable to assess due to parsing error"
                 }
+
+            # Add token usage data to feedback
+            feedback["token_usage"] = {
+                "input_tokens": critic_input_tokens,
+                "output_tokens": critic_output_tokens,
+                "total_cost": critic_total_cost,
+                "model": self.critic_model
+            }
 
             return feedback
 
@@ -750,18 +853,196 @@ Focus on: logical reasoning, appropriate tool choice, progress toward goal, and 
             self.context.console_update(f"Critic evaluation failed: {str(e)}")
             return {
                 "quality_score": 5,
-                "reasoning_clarity": 5,
-                "action_appropriateness": 5,
-                "progress_made": 5,
+                "causal_inference_rigor": 5,
+                "trading_strategy_relevance": 5,
+                "statistical_methodology": 5,
+                "data_appropriateness": 5,
                 "issues": [f"Critic error: {str(e)}"],
                 "suggestions": ["Continue without critic feedback"],
-                "should_continue": True
+                "improved_code": "",
+                "allow_finish": False,
+                "causal_assessment": f"Unable to assess due to error: {str(e)}",
+                "token_usage": {
+                    "input_tokens": 0,
+                    "output_tokens": 0,
+                    "total_cost": 0.0,
+                    "model": self.critic_model,
+                    "error": str(e)
+                }
             }
+
+    def _handle_stop_action(self, tool_input: dict, assistant_content: str, iteration: int, user_query: str) -> tuple[bool, str]:
+        """Handle stop action with critic approval check. Returns (should_stop, final_answer)"""
+        final_answer = tool_input.get("final_answer", assistant_content)
+
+        # If critic is enabled, check if finishing is allowed
+        if self.enable_critic:
+            self.context.console_update(f"Analyst wants to finish. Checking with expert critic...")
+
+            # Create step data for critic evaluation
+            stop_step_data = {
+                "iteration": iteration,
+                "thought": assistant_content,
+                "action_type": "stop",
+                "action_params": tool_input,
+                "observation": f"Agent attempting to stop with final answer: {final_answer[:200]}..."
+            }
+
+            critic_feedback = self._call_critic(stop_step_data, user_query, self.previous_critic_feedback)
+            self.previous_critic_feedback.append(critic_feedback)
+
+            # Log critic decision on finishing
+            self.context.log_react_event("critic_evaluation", {
+                "iteration": iteration,
+                "quality_score": critic_feedback.get("quality_score", 0),
+                "causal_inference_rigor": critic_feedback.get("causal_inference_rigor", 0),
+                "trading_strategy_relevance": critic_feedback.get("trading_strategy_relevance", 0),
+                "statistical_methodology": critic_feedback.get("statistical_methodology", 0),
+                "data_appropriateness": critic_feedback.get("data_appropriateness", 0),
+                "allow_finish": critic_feedback.get("allow_finish", False),
+                "issues": critic_feedback.get("issues", []),
+                "suggestions": critic_feedback.get("suggestions", []),
+                "causal_assessment": critic_feedback.get("causal_assessment", ""),
+                "has_improved_code": bool(critic_feedback.get("improved_code", "").strip()),
+                "input_tokens": critic_feedback.get("token_usage", {}).get("input_tokens", 0),
+                "output_tokens": critic_feedback.get("token_usage", {}).get("output_tokens", 0),
+                "total_cost": critic_feedback.get("token_usage", {}).get("total_cost", 0.0),
+                "finish_blocked": not critic_feedback.get("allow_finish", False)
+            })
+
+            if critic_feedback.get("allow_finish", False):
+                self.context.console_update("✅ Critic approved finishing the analysis")
+                self.context.log_react_event("explicit_react_cycle_complete", {
+                    "final_iteration": iteration,
+                    "completion_reason": "stop_action_approved_by_critic",
+                    "final_answer": final_answer
+                })
+                return True, final_answer
+            else:
+                self.context.console_update("❌ Critic blocked finishing - analysis needs improvement")
+                self._add_critic_feedback_to_conversation(critic_feedback)
+                return False, ""
+        else:
+            # No critic - allow immediate stop
+            self.context.log_react_event("explicit_react_cycle_complete", {
+                "final_iteration": iteration,
+                "completion_reason": "stop_action_called_no_critic",
+                "final_answer": final_answer
+            })
+            return True, final_answer
+
+    def _add_critic_feedback_to_conversation(self, critic_feedback: dict):
+        """Add critic feedback to conversation history for next iteration"""
+        critic_summary = f"""
+EXPERT CRITIC FEEDBACK - ANALYSIS NOT YET COMPLETE:
+
+Quality Issues Identified:
+{chr(10).join(f"• {issue}" for issue in critic_feedback.get("issues", []))}
+
+Required Improvements:
+{chr(10).join(f"• {suggestion}" for suggestion in critic_feedback.get("suggestions", []))}
+
+Causal Inference Assessment: {critic_feedback.get("causal_assessment", "See above issues")}
+
+You must address these methodological concerns before providing a final answer. Continue with the next iteration to implement the recommended improvements."""
+
+        # Add critic feedback to conversation history
+        self.conversation_history.append({
+            "role": "assistant",
+            "content": f"I want to provide my final answer, but I need to address some methodological concerns first."
+        })
+        self.conversation_history.append({
+            "role": "user",
+            "content": critic_summary
+        })
+
+    def _process_assistant_response(self, response, iteration: int, user_query: str) -> tuple[str, list, dict, bool]:
+        """Process assistant response and extract content, tools, step data. Returns (assistant_content, tool_results, step_data, should_continue)"""
+        assistant_content = ""
+        tool_results = []
+        step_data = {"iteration": iteration}
+
+        # Process response content - extract thought and action
+        for content_block in response.content:
+            if content_block.type == "text":
+                assistant_content += content_block.text
+                step_data["thought"] = content_block.text
+            elif content_block.type == "tool_use":
+                # Extract action details
+                tool_name = content_block.name
+                tool_input = content_block.input
+                tool_use_id = content_block.id
+
+                step_data["action_type"] = tool_name
+                step_data["action_params"] = tool_input
+
+                self.context.log_react_event("explicit_tool_execution_start", {
+                    "iteration": iteration,
+                    "tool_name": tool_name,
+                    "tool_input": tool_input,
+                    "tool_use_id": tool_use_id
+                })
+
+                # Special handling for 'stop' action - need to check critic first
+                if tool_name == "stop":
+                    should_stop, final_answer = self._handle_stop_action(tool_input, assistant_content, iteration, user_query)
+                    if should_stop:
+                        return final_answer, tool_results, step_data, False  # should_continue = False
+                    else:
+                        return assistant_content, tool_results, step_data, True  # Continue to next iteration
+
+                # Execute the tool
+                tool_result = self.tool_executor.execute_tool(tool_name, tool_input)
+                step_data["observation"] = tool_result.content
+
+                self.context.log_react_event("explicit_tool_execution_complete", {
+                    "iteration": iteration,
+                    "tool_name": tool_name,
+                    "success": tool_result.success,
+                    "result_length": len(tool_result.content),
+                    "duration": tool_result.duration
+                })
+
+                # Add tool result to conversation
+                tool_results.append({
+                    "type": "tool_result",
+                    "tool_use_id": tool_use_id,
+                    "content": tool_result.content,
+                    "is_error": not tool_result.success
+                })
+
+        return assistant_content, tool_results, step_data, True
+
+    def _evaluate_with_critic(self, step_data: dict, iteration: int, user_query: str, tool_results: list):
+        """Run critic evaluation if enabled and we have tool actions"""
+        if self.enable_critic and tool_results:
+            self.context.console_update(f"Running expert causal inference critic for iteration {iteration}...")
+            critic_feedback = self._call_critic(step_data, user_query, self.previous_critic_feedback)
+            step_data["critic_feedback"] = critic_feedback
+            self.previous_critic_feedback.append(critic_feedback)
+
+            self.context.log_react_event("critic_evaluation", {
+                "iteration": iteration,
+                "quality_score": critic_feedback.get("quality_score", 0),
+                "causal_inference_rigor": critic_feedback.get("causal_inference_rigor", 0),
+                "trading_strategy_relevance": critic_feedback.get("trading_strategy_relevance", 0),
+                "statistical_methodology": critic_feedback.get("statistical_methodology", 0),
+                "data_appropriateness": critic_feedback.get("data_appropriateness", 0),
+                "allow_finish": critic_feedback.get("allow_finish", False),
+                "issues": critic_feedback.get("issues", []),
+                "suggestions": critic_feedback.get("suggestions", []),
+                "causal_assessment": critic_feedback.get("causal_assessment", ""),
+                "has_improved_code": bool(critic_feedback.get("improved_code", "").strip()),
+                "input_tokens": critic_feedback.get("token_usage", {}).get("input_tokens", 0),
+                "output_tokens": critic_feedback.get("token_usage", {}).get("output_tokens", 0),
+                "total_cost": critic_feedback.get("token_usage", {}).get("total_cost", 0.0)
+            })
 
     def execute_react_cycle(self, system_prompt: str, user_query: str, max_iterations: int = 10) -> str:
         """Execute formal ReAct cycle with explicit reasoning and automatic critic"""
 
         self.conversation_history = [{"role": "user", "content": user_query}]
+        self.previous_critic_feedback = []  # Track critic feedback across iterations
 
         self.context.log_react_event("explicit_react_cycle_start", {
             "max_iterations": max_iterations,
@@ -781,7 +1062,7 @@ Focus on: logical reasoning, appropriate tool choice, progress toward goal, and 
                 # Get analyst response
                 response = self.anthropic_client.messages.create(
                     model=self.analyst_model.replace("anthropic:", ""),
-                    max_tokens=8000,
+                    max_tokens=self.context.config['model']['max_tokens'],
                     messages=self.conversation_history,
                     system=system_prompt,
                     tools=self.tools
@@ -812,15 +1093,90 @@ Focus on: logical reasoning, appropriate tool choice, progress toward goal, and 
                             "tool_use_id": tool_use_id
                         })
 
-                        # Special handling for 'stop' action
+                        # Special handling for 'stop' action - need to check critic first
                         if tool_name == "stop":
                             final_answer = tool_input.get("final_answer", assistant_content)
-                            self.context.log_react_event("explicit_react_cycle_complete", {
-                                "final_iteration": iteration,
-                                "completion_reason": "stop_action_called",
-                                "final_answer": final_answer
-                            })
-                            return final_answer
+
+                            # If critic is enabled, check if finishing is allowed
+                            if self.enable_critic:
+                                self.context.console_update(f"Analyst wants to finish. Checking with expert critic...")
+
+                                # Create step data for critic evaluation
+                                stop_step_data = {
+                                    "iteration": iteration,
+                                    "thought": assistant_content,
+                                    "action_type": "stop",
+                                    "action_params": tool_input,
+                                    "observation": f"Agent attempting to stop with final answer: {final_answer[:200]}..."
+                                }
+
+                                critic_feedback = self._call_critic(stop_step_data, user_query, self.previous_critic_feedback)
+                                self.previous_critic_feedback.append(critic_feedback)
+
+                                # Log critic decision on finishing
+                                self.context.log_react_event("critic_evaluation", {
+                                    "iteration": iteration,
+                                    "quality_score": critic_feedback.get("quality_score", 0),
+                                    "causal_inference_rigor": critic_feedback.get("causal_inference_rigor", 0),
+                                    "trading_strategy_relevance": critic_feedback.get("trading_strategy_relevance", 0),
+                                    "statistical_methodology": critic_feedback.get("statistical_methodology", 0),
+                                    "data_appropriateness": critic_feedback.get("data_appropriateness", 0),
+                                    "allow_finish": critic_feedback.get("allow_finish", False),
+                                    "issues": critic_feedback.get("issues", []),
+                                    "suggestions": critic_feedback.get("suggestions", []),
+                                    "causal_assessment": critic_feedback.get("causal_assessment", ""),
+                                    "has_improved_code": bool(critic_feedback.get("improved_code", "").strip()),
+                                    "input_tokens": critic_feedback.get("token_usage", {}).get("input_tokens", 0),
+                                    "output_tokens": critic_feedback.get("token_usage", {}).get("output_tokens", 0),
+                                    "total_cost": critic_feedback.get("token_usage", {}).get("total_cost", 0.0),
+                                    "finish_blocked": not critic_feedback.get("allow_finish", False)
+                                })
+
+                                if critic_feedback.get("allow_finish", False):
+                                    self.context.console_update("✅ Critic approved finishing the analysis")
+                                    self.context.log_react_event("explicit_react_cycle_complete", {
+                                        "final_iteration": iteration,
+                                        "completion_reason": "stop_action_approved_by_critic",
+                                        "final_answer": final_answer
+                                    })
+                                    return final_answer
+                                else:
+                                    self.context.console_update("❌ Critic blocked finishing - analysis needs improvement")
+
+                                    # Convert critic feedback into conversation context for next iteration
+                                    critic_summary = f"""
+EXPERT CRITIC FEEDBACK - ANALYSIS NOT YET COMPLETE:
+
+Quality Issues Identified:
+{chr(10).join(f"• {issue}" for issue in critic_feedback.get("issues", []))}
+
+Required Improvements:
+{chr(10).join(f"• {suggestion}" for suggestion in critic_feedback.get("suggestions", []))}
+
+Causal Inference Assessment: {critic_feedback.get("causal_assessment", "See above issues")}
+
+You must address these methodological concerns before providing a final answer. Continue with the next iteration to implement the recommended improvements."""
+
+                                    # Add critic feedback to conversation history
+                                    self.conversation_history.append({
+                                        "role": "assistant",
+                                        "content": f"I want to provide my final answer, but I need to address some methodological concerns first."
+                                    })
+                                    self.conversation_history.append({
+                                        "role": "user",
+                                        "content": critic_summary
+                                    })
+
+                                    # Continue to next iteration instead of stopping
+                                    continue
+                            else:
+                                # No critic - allow immediate stop
+                                self.context.log_react_event("explicit_react_cycle_complete", {
+                                    "final_iteration": iteration,
+                                    "completion_reason": "stop_action_called_no_critic",
+                                    "final_answer": final_answer
+                                })
+                                return final_answer
 
                         # Execute the tool
                         tool_result = self.tool_executor.execute_tool(tool_name, tool_input)
@@ -847,23 +1203,46 @@ Focus on: logical reasoning, appropriate tool choice, progress toward goal, and 
 
                 # Run critic evaluation if enabled and we have tool actions
                 if self.enable_critic and tool_results:
-                    self.context.console_update(f"Running critic evaluation for iteration {iteration}...")
-                    critic_feedback = self._call_critic(step_data)
+                    self.context.console_update(f"Running expert causal inference critic for iteration {iteration}...")
+                    critic_feedback = self._call_critic(step_data, user_query, self.previous_critic_feedback)
                     step_data["critic_feedback"] = critic_feedback
+                    self.previous_critic_feedback.append(critic_feedback)
 
                     self.context.log_react_event("critic_evaluation", {
                         "iteration": iteration,
                         "quality_score": critic_feedback.get("quality_score", 0),
-                        "should_continue": critic_feedback.get("should_continue", True),
+                        "causal_inference_rigor": critic_feedback.get("causal_inference_rigor", 0),
+                        "trading_strategy_relevance": critic_feedback.get("trading_strategy_relevance", 0),
+                        "statistical_methodology": critic_feedback.get("statistical_methodology", 0),
+                        "data_appropriateness": critic_feedback.get("data_appropriateness", 0),
+                        "allow_finish": critic_feedback.get("allow_finish", False),
                         "issues": critic_feedback.get("issues", []),
-                        "suggestions": critic_feedback.get("suggestions", [])
+                        "suggestions": critic_feedback.get("suggestions", []),
+                        "causal_assessment": critic_feedback.get("causal_assessment", ""),
+                        "has_improved_code": bool(critic_feedback.get("improved_code", "").strip()),
+                        "input_tokens": critic_feedback.get("input_tokens", 0),
+                        "output_tokens": critic_feedback.get("output_tokens", 0),
+                        "total_cost": critic_feedback.get("total_cost", 0.0)
                     })
 
-                    # Add critic feedback to conversation
-                    critic_message = f"\n\n**CRITIC FEEDBACK:**\n"
-                    critic_message += f"Quality Score: {critic_feedback.get('quality_score', 'N/A')}/10\n"
-                    critic_message += f"Issues: {', '.join(critic_feedback.get('issues', []))}\n"
-                    critic_message += f"Suggestions: {', '.join(critic_feedback.get('suggestions', []))}\n"
+                    # Add comprehensive critic feedback to conversation
+                    critic_message = f"\n\n**EXPERT CAUSAL INFERENCE & TRADING STRATEGY CRITIC FEEDBACK:**\n"
+                    critic_message += f"Overall Quality: {critic_feedback.get('quality_score', 'N/A')}/10\n"
+                    critic_message += f"Causal Inference Rigor: {critic_feedback.get('causal_inference_rigor', 'N/A')}/10\n"
+                    critic_message += f"Trading Strategy Relevance: {critic_feedback.get('trading_strategy_relevance', 'N/A')}/10\n"
+                    critic_message += f"Statistical Methodology: {critic_feedback.get('statistical_methodology', 'N/A')}/10\n"
+                    critic_message += f"Data Appropriateness: {critic_feedback.get('data_appropriateness', 'N/A')}/10\n\n"
+
+                    critic_message += f"**Causal Assessment:** {critic_feedback.get('causal_assessment', 'Not provided')}\n\n"
+
+                    if critic_feedback.get('issues'):
+                        critic_message += f"**Critical Issues:** {'; '.join(critic_feedback.get('issues', []))}\n\n"
+
+                    if critic_feedback.get('suggestions'):
+                        critic_message += f"**Expert Recommendations:** {'; '.join(critic_feedback.get('suggestions', []))}\n\n"
+
+                    if critic_feedback.get('improved_code') and critic_feedback.get('improved_code').strip():
+                        critic_message += f"**Improved Code Suggestion:**\n```python\n{critic_feedback.get('improved_code')[:1000]}\n```\n"
 
                     # Append critic feedback to the last tool result
                     if tool_results:
@@ -902,11 +1281,19 @@ Focus on: logical reasoning, appropriate tool choice, progress toward goal, and 
                     })
                     return assistant_content
 
+                # Extract token usage from response
+                input_tokens = getattr(response.usage, 'input_tokens', 0) if hasattr(response, 'usage') else 0
+                output_tokens = getattr(response.usage, 'output_tokens', 0) if hasattr(response, 'usage') else 0
+                total_cost = calculate_token_cost(self.analyst_model, input_tokens, output_tokens)
+
                 self.context.log_react_event("explicit_model_response", {
                     "iteration": iteration,
                     "response_length": len(assistant_content),
                     "tools_called": len(tool_results),
-                    "critic_enabled": self.enable_critic
+                    "critic_enabled": self.enable_critic,
+                    "input_tokens": input_tokens,
+                    "output_tokens": output_tokens,
+                    "total_cost": total_cost
                 })
 
             except Exception as e:
@@ -929,12 +1316,15 @@ Focus on: logical reasoning, appropriate tool choice, progress toward goal, and 
 class ExplicitReActAgent:
     """Agent using formal ReAct loop with automatic critic evaluation"""
 
-    def __init__(self, analyst_model: str = "claude-3-5-sonnet-20241022",
-                 critic_model: str = "gpt-4o-mini", enable_critic: bool = True, max_iterations: int = 10):
+    def __init__(self, analyst_model: str,
+                 critic_model: str, enable_critic: bool = True, max_iterations: int = 10,
+                 analyst_max_tokens: int = 16000, critic_max_tokens: int = 16000):
         self.analyst_model = analyst_model
         self.critic_model = critic_model
         self.enable_critic = enable_critic
         self.max_iterations = max_iterations
+        self.analyst_max_tokens = analyst_max_tokens
+        self.critic_max_tokens = critic_max_tokens
 
     def execute_query(self, context: AgentContext, system_prompt: str) -> str:
         """Main execution loop with explicit ReAct and critic"""
@@ -952,7 +1342,9 @@ class ExplicitReActAgent:
             context,
             self.analyst_model,
             self.critic_model,
-            self.enable_critic
+            self.enable_critic,
+            self.analyst_max_tokens,
+            self.critic_max_tokens
         )
 
         try:
@@ -984,9 +1376,12 @@ def create_native_transparent_agent(model_name: str, max_iterations: int = 10) -
     return NativeTransparentAgent(model_name, max_iterations)
 
 
-def create_explicit_react_agent(analyst_model: str = "claude-3-5-sonnet-20241022",
-                                critic_model: str = "gpt-4o-mini",
+def create_explicit_react_agent(analyst_model: str,
+                                critic_model: str,
                                 enable_critic: bool = True,
-                                max_iterations: int = 10) -> ExplicitReActAgent:
+                                max_iterations: int = 10,
+                                analyst_max_tokens: int = 16000,
+                                critic_max_tokens: int = 16000) -> ExplicitReActAgent:
     """Create an explicit ReAct agent with critic evaluation"""
-    return ExplicitReActAgent(analyst_model, critic_model, enable_critic, max_iterations)
+    return ExplicitReActAgent(analyst_model, critic_model, enable_critic, max_iterations,
+                             analyst_max_tokens, critic_max_tokens)

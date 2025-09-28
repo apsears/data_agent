@@ -1,6 +1,6 @@
 # Claude Data Agent
 
-> **🚀 September 2025 Update:** This project has been completely migrated from PydanticAI to **native Anthropic tool calling** with massive improvements: 86.5% cost reduction, 5/5 accuracy scores, and simplified architecture. The system now includes automatic file versioning and deterministic execution. See [migration docs](docs/2025_09_27_20_45_pydantic_ai_removal_complete.md) for details.
+> **🚀 September 2025 Update:** This project has been completely migrated from PydanticAI to **native Anthropic tool calling** with massive improvements: 86.5% cost reduction, 5/5 accuracy scores, and simplified architecture. The system now includes automatic file versioning, deterministic execution, **idea generation MVP**, and **formal ReAct loop with expert critic system**. See [migration docs](docs/2025_09_27_20_45_pydantic_ai_removal_complete.md) and [comprehensive progress report](docs/2025_09_28_16_45_00_comprehensive_progress_report.md) for details.
 
 A sophisticated agentic system built with **native Anthropic tool calling** that gives Claude the ability to:
 - Write and execute Python scripts in isolated workspaces with automatic versioning
@@ -10,8 +10,11 @@ A sophisticated agentic system built with **native Anthropic tool calling** that
 - Run completely autonomous data analysis tasks with comprehensive audit trails
 - Prevent file overwrites through automatic `_v001`, `_v002` versioning
 - Execute deterministic batch processing with retry ledger instrumentation
+- **Generate analysis ideas from domain knowledge using genetic algorithm-inspired evolution**
+- **Execute formal ReAct loops with automatic causal inference expert critic evaluation**
+- **Track token usage and costs elegantly using pricing data integration**
 
-This project demonstrates both basic agent functionality and advanced ReAct loop implementations with full observability through structured JSON logging and comprehensive error handling.
+This project demonstrates both basic agent functionality and advanced ReAct loop implementations with full observability through structured JSON logging, comprehensive error handling, and innovative idea generation capabilities targeting sophisticated trading analytics.
 
 ## Key Features
 
@@ -36,6 +39,20 @@ This project demonstrates both basic agent functionality and advanced ReAct loop
 - Enhanced tool schema validation
 - Improved error communication between tools and agent
 
+### 🧠 **Idea Generation MVP**
+- Domain knowledge-driven analysis idea generation from pipeline events and causal techniques
+- Portfolio seed management with multi-criteria scoring (domain relevance, trader value, technical rigor, novelty)
+- Genetic algorithm-inspired evolution for iterative improvement
+- Integration with execution and refinement workflows targeting SynMax analytics
+
+### 🔄 **Formal ReAct Loop with Expert Critic** ✅ FULLY OPERATIONAL
+- ExplicitReActExecutor with full Reasoning-Action-Observation cycles
+- Automatic causal inference expert critic evaluation (GPT-5 Mini) - **Now working with pricing fix!**
+- Context accumulation across iterations with comprehensive logging
+- Enhanced critic provides improved code suggestions and multi-dimensional quality scoring
+- Elegant token cost tracking using pricing data integration (Claude 4 Sonnet + GPT-5 Mini)
+- Real-time guidance during execution eliminates need for post-hoc refinement cycles
+
 ## Examples
 
 See [EXAMPLES.md](EXAMPLES.md) for real query/answer pairs from the data science agent analyzing US natural gas pipeline transportation data.
@@ -51,6 +68,23 @@ then run, e.g.:
 ```
 source .venv/bin/activate && python run_agent.py --task "What was the total scheduled quantity in Texas during 2023?"
 ```
+
+**Idea Generation MVP with Working Critic:**
+```bash
+# Generate analysis ideas from domain knowledge
+source .venv/bin/activate && python src/idea_generation_mvp/run_mvp.py
+
+# Execute portfolio seed with automatic critic guidance (RECOMMENDED)
+source .venv/bin/activate && python src/idea_generation_mvp/execution_runner.py
+
+# Optional: Refinement only for external feedback
+source .venv/bin/activate && python src/idea_generation_mvp/execution_runner.py --refinement --previous-report docs/external_feedback.md
+
+# Direct ReAct loop test with critic
+source .venv/bin/activate && python transparent_agent_executor.py --task "Analyze causal impact using difference-in-differences" --query-id "test_critic" --react-explicit --critic --console-updates
+```
+
+**Note:** The critic now provides real-time causal inference expertise during execution, achieving high-quality results in a single pass without needing refinement cycles.
 
 ## Quickstart
 
@@ -308,6 +342,9 @@ Perfect for batch analysis, model evaluation, and production data processing wor
 ✅ **Fixed script execution blocking issue** - Resolved react_log.jsonl path creation problems
 ✅ **Fixed JSON serialization errors** - Added proper datetime handling
 ✅ **Added tiktoken cost tracking** - Real-time token counting with accurate cost calculation
+✅ **🤖 Critic System Operational** - Fixed pricing function to support GPT-5 Mini critic (Sept 28)
+✅ **📊 Idea Generation MVP Complete** - Domain knowledge-driven analysis generation with evolution
+✅ **🔄 ReAct Loop Enhanced** - Real-time critic eliminates need for post-hoc refinement cycles
 
 ---
 

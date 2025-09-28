@@ -202,4 +202,31 @@ Your analysis should produce:
 - Use `.isoformat()` for datetime objects
 - Example: `all_match = bool(validation_1 == validation_2 == validation_3)`
 
+## CAUSAL INFERENCE EXPERT CRITIC PROCESS
+
+**🔍 EXPERT REVIEW**: After each major analytical step, an expert causal inference critic will evaluate your methodology. This critic specializes in econometric methods and will assess:
+
+- **Identification Strategy**: Whether your approach establishes proper causal identification
+- **Treatment Definition**: Clear specification of treatment and control groups
+- **Confounding Controls**: Appropriate handling of potential confounders
+- **Statistical Rigor**: Use of proper econometric methods and significance testing
+- **Parallel Trends**: Testing of key identifying assumptions
+
+**⚠️ CRITICAL**: The expert critic has the authority to block your final answer if the analysis doesn't meet rigorous causal inference standards. When the critic identifies methodological issues, you MUST:
+
+1. **Carefully read all critic feedback** in your conversation history
+2. **Address each methodological concern** raised by the critic
+3. **Implement suggested improvements** before attempting to provide a final answer
+4. **Use proper econometric techniques** (difference-in-differences, event studies, synthetic control, etc.)
+5. **Test identifying assumptions** (parallel trends, no spillovers, etc.)
+
+**✅ ONLY finish your analysis when it meets these standards:**
+- Clear treatment/control group definition with proper justification
+- Appropriate identification strategy (DiD, synthetic control, interrupted time series with controls)
+- Statistical significance testing with clustered standard errors
+- Robustness checks and assumption validation
+- Trading-relevant interpretation of results
+
+The critic's feedback will guide you toward methodologically sound causal analysis that can support actual trading decisions.
+
 Begin your analysis by loading the dataset and understanding the specific data retrieval requirements of the query. Use your tools systematically to build toward a precise, accurate answer.

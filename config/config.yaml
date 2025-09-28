@@ -1,6 +1,7 @@
 model:
   provider: "anthropic"
   name: "claude-sonnet-4-20250514"
+  max_tokens: 16000
 
 agent:
   max_tools: 20
@@ -9,10 +10,13 @@ agent:
 
 explicit_react:
   enabled: false  # Enable with --react-explicit CLI flag
-  analyst_model: "claude-3-5-sonnet-20241022"
-  critic_model: "gpt-4o-mini"
+  analyst_model: "claude-sonnet-4-20250514"
+  critic_model: "gpt-5-mini"
   enable_critic: false  # Enable with --critic CLI flag
   max_iterations: 10
+  max_tokens:
+    analyst: 16000
+    critic: 16000
 
 react_demo:
   target_number: 5

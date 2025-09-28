@@ -72,6 +72,7 @@ class AgentContext:
     dataset_description: str
     analysis_type: str
     rubric: Dict[str, Any]
+    config: Dict[str, Any]
     console_updates_enabled: bool = True
     react_log_path: Optional[Path] = None
     tool_timings: List[Dict[str, Any]] = None

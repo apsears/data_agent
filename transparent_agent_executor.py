@@ -253,9 +253,9 @@ def main():
                        help="Use explicit ReAct loop with formal reasoning")
     parser.add_argument("--critic", action="store_true",
                        help="Enable automatic critic evaluation (requires --react-explicit)")
-    parser.add_argument("--critic-model", default="gpt-4o-mini",
+    parser.add_argument("--critic-model",
                        help="Model to use for critic evaluation")
-    parser.add_argument("--analyst-model", default="claude-3-5-sonnet-20241022",
+    parser.add_argument("--analyst-model",
                        help="Model to use for analyst reasoning (when using --react-explicit)")
 
     args = parser.parse_args()
@@ -289,6 +289,7 @@ def main():
         dataset_description=config.get("dataset", {}).get("description", "Natural gas pipeline transportation data"),
         analysis_type=analysis_type,
         rubric=rubric,
+        config=config,
         console_updates_enabled=args.console_updates,
         react_log_path=workspace_dir / "workspace" / "react_log.jsonl",
         total_start_time=total_start_time
@@ -312,15 +313,27 @@ def main():
             rubric=rubric
         )
 
-        # Create agent based on configuration
+        # Use config values for models if not provided via command line
         if args.react_explicit:
+            analyst_model = args.analyst_model or config['explicit_react']['analyst_model']
+            critic_model = args.critic_model or config['explicit_react']['critic_model']
+            analyst_max_tokens = config['explicit_react']['max_tokens']['analyst']
+            critic_max_tokens = config['explicit_react']['max_tokens']['critic']
+
+            if not analyst_model:
+                raise ValueError("Analyst model must be specified via --analyst-model or config explicit_react.analyst_model")
+            if args.critic and not critic_model:
+                raise ValueError("Critic model must be specified via --critic-model or config explicit_react.critic_model")
+
             if context.console_updates_enabled:
-                print(f"Creating explicit ReAct agent (analyst: {args.analyst_model}, critic: {args.critic_model if args.critic else 'disabled'})")
+                print(f"Creating explicit ReAct agent (analyst: {analyst_model}, critic: {critic_model if args.critic else 'disabled'})")
             agent = create_explicit_react_agent(
-                analyst_model=args.analyst_model,
-                critic_model=args.critic_model,
+                analyst_model=analyst_model,
+                critic_model=critic_model,
                 enable_critic=args.critic,
-                max_iterations=args.max_tools
+                max_iterations=args.max_tools,
+                analyst_max_tokens=analyst_max_tokens,
+                critic_max_tokens=critic_max_tokens
             )
         else:
             if context.console_updates_enabled:
