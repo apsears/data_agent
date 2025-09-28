@@ -18,6 +18,30 @@ dependencies = [
     "plotly>=5.15.0",
     "matplotlib>=3.7.0",
     "seaborn>=0.12.0",
+    # Essential causal inference (validated working versions)
+    "econml>=0.13.0",
+    "linearmodels>=4.25.0",
+    "arch>=5.3.0",
+    # Network analysis and optimization
+    "networkx>=2.8.0",
+    "cvxpy>=1.3.0",
+    # Time series advanced methods
+    "ruptures>=1.1.0",
+    "prophet>=1.1.0",
+    # Machine learning for clustering
+    "umap-learn>=0.5.0",
+    "hdbscan>=0.8.0",
+    # Anomaly detection and outlier analysis
+    "pyod>=1.0.0",
+    # Extreme value theory
+    "pyextremes>=2.2.0",
+    # Optimal transport
+    "POT>=0.8.0",
+    # Geospatial analysis for pipeline networks
+    "geopandas>=0.13.0",
+    # High performance computing
+    "numba>=0.56.0",
+    "dask>=2022.0.0",
     # LLM libraries
     "openai>=1.0.0",
     "anthropic>=0.18.0",
@@ -47,9 +71,6 @@ dependencies = [
     "structlog>=23.1.0",
 ]
 
-[tool.setuptools]
-py-modules = ["run_agent", "runner_utils"]
-
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
@@ -58,6 +79,9 @@ dev = [
     "mypy>=1.5.0",
     "pre-commit>=3.4.0",
 ]
+
+[tool.setuptools]
+py-modules = ["run_agent", "runner_utils"]
 
 [tool.ruff]
 target-version = "py310"

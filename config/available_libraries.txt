@@ -1,0 +1,123 @@
+# Available Python Libraries for Advanced Pipeline Analytics
+
+## Core Data Science Libraries (ALWAYS AVAILABLE)
+- pandas>=2.0.0              # Data manipulation and analysis
+- numpy>=1.24.0               # Numerical computing
+- scipy>=1.10.0               # Scientific computing and statistical distributions
+- scikit-learn>=1.3.0         # Machine learning algorithms
+- statsmodels>=0.14.0         # Statistical modeling (VAR, ARIMA, time series)
+- matplotlib>=3.7.0           # Static plotting
+- seaborn>=0.12.0             # Statistical data visualization
+- plotly>=5.15.0              # Interactive visualizations
+
+## Essential Causal Inference Libraries (ALWAYS AVAILABLE)
+- econml>=0.13.0              # Microsoft EconML (causal forests, DiD, synthetic control)
+- linearmodels>=4.25.0        # Panel data models, IV regression, difference-in-differences
+- arch>=5.3.0                 # Financial econometrics, bootstrap methods, robust inference
+
+## Network Analysis and Optimization (ALWAYS AVAILABLE)
+- networkx>=2.8.0             # Graph analysis, centrality measures, community detection
+- cvxpy>=1.3.0                # Convex optimization for constrained problems
+
+## Advanced Time Series Methods (ALWAYS AVAILABLE)
+- ruptures>=1.1.0             # Changepoint detection, regime analysis
+- prophet>=1.1.0              # Facebook Prophet for forecasting
+
+## Machine Learning for Clustering (ALWAYS AVAILABLE)
+- umap-learn>=0.5.0           # UMAP dimensionality reduction
+- hdbscan>=0.8.0              # Hierarchical density-based clustering
+
+## Anomaly Detection and Outlier Analysis (ALWAYS AVAILABLE)
+- pyod>=1.0.0                 # Outlier detection algorithms
+- pyextremes>=2.2.0           # Extreme value theory for tail analysis
+
+## Optimal Transport (ALWAYS AVAILABLE)
+- POT>=0.8.0                  # Python Optimal Transport library
+
+## Geospatial Analysis (ALWAYS AVAILABLE)
+- geopandas>=0.13.0           # Geospatial data analysis for pipeline networks
+
+## High Performance Computing (ALWAYS AVAILABLE)
+- numba>=0.56.0               # JIT compilation for numerical code
+- dask>=2022.0.0              # Parallel and distributed computing
+
+## TECHNIQUE-TO-LIBRARY MAPPING
+
+### Causal Inference Methods
+- **Difference-in-Differences (DiD):** linearmodels.panel, econml.dml
+- **Event Studies:** statsmodels, linearmodels.panel
+- **Synthetic Control:** econml.dml.CausalForestDML (has synthetic control methods)
+- **Regression Discontinuity:** econml.dml.SparseLinearDML
+- **Instrumental Variables:** linearmodels.iv
+- **Causal Forests:** econml.dml.CausalForestDML
+- **Bayesian Structural Time Series:** pymc for custom BSTS models
+
+### Time Series and Network Analysis
+- **VAR Models & Granger Causality:** statsmodels.tsa.vector_ar.VAR
+- **Prophet Forecasting:** prophet.Prophet for time series forecasting
+- **Network Flow Centrality:** networkx.centrality
+- **Panel VAR:** Use statsmodels with manual panel setup
+
+### Constraint and Anomaly Detection
+- **Utilization Constraint Detection:** ruptures for changepoint detection
+- **Mass Balance Analysis:** Custom implementation with pandas + cvxpy
+- **Extreme Value Theory:** pyextremes for tail modeling
+- **Anomaly Detection:** pyod.models for various algorithms
+
+### Clustering and Segmentation
+- **Hidden Segment Clustering:** umap-learn + hdbscan
+- **Conditional Dependency Mapping:** Custom graphical lasso with scikit-learn
+
+### Optimization and Reallocation
+- **Optimal Transport:** POT.emd, POT.sinkhorn
+- **Constrained Flow Problems:** cvxpy for linear/convex optimization
+- **Network Flow Optimization:** networkx.algorithms.flow
+
+### Quantile and Heterogeneity Analysis
+- **Quantile Regression:** statsmodels.regression.quantile_regression
+- **Treatment Effect Heterogeneity:** econml for heterogeneous effects
+
+## USAGE EXAMPLES
+
+### Import Templates for Common Techniques
+
+```python
+# Causal Inference
+from econml.dml import CausalForestDML
+from linearmodels.panel import PanelOLS
+from linearmodels.iv import IV2SLS
+
+# Time Series Analysis
+from statsmodels.tsa.vector_ar.var_model import VAR
+import ruptures as rpt
+from prophet import Prophet
+
+# Network and Flow Analysis
+import networkx as nx
+import ot  # POT library
+
+# Clustering and Dimensionality Reduction
+import umap
+import hdbscan
+
+# Anomaly Detection
+from pyod.models.isolation import IForest
+from pyextremes import EVA
+
+# Optimization
+import cvxpy as cp
+
+# Bayesian Methods
+import pymc as pm
+```
+
+### Key Function References
+
+- **DiD Analysis:** `linearmodels.panel.PanelOLS` with entity and time effects
+- **Synthetic Control:** `econml.dml` with appropriate controls
+- **VAR Models:** `statsmodels.tsa.vector_ar.VAR`
+- **Changepoint Detection:** `ruptures.Pelt`, `ruptures.Window`
+- **Network Centrality:** `networkx.betweenness_centrality`, `networkx.eigenvector_centrality`
+- **Optimal Transport:** `ot.emd`, `ot.sinkhorn`
+- **UMAP Clustering:** `umap.UMAP` + `hdbscan.HDBSCAN`
+- **EVT Analysis:** `pyextremes.EVA`

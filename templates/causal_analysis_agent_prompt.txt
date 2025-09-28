@@ -40,10 +40,54 @@ This is a **CAUSAL ANALYSIS** task requiring identification of anomalies, outlie
 
 ## PYTHON LIBRARIES AVAILABLE
 
-- pandas, numpy: Data manipulation and analysis
-- matplotlib, seaborn, plotly: Visualization and charting
-- scipy, sklearn: Statistical analysis and machine learning
-- datetime: Date/time processing for temporal analysis
+### Core Data Science Libraries (ALWAYS AVAILABLE)
+- pandas>=2.0.0: Data manipulation and analysis
+- numpy>=1.24.0: Numerical computing
+- scipy>=1.10.0: Scientific computing and statistical distributions
+- scikit-learn>=1.3.0: Machine learning algorithms
+- statsmodels>=0.14.0: Statistical modeling (VAR, ARIMA, time series)
+- matplotlib>=3.7.0, seaborn>=0.12.0, plotly>=5.15.0: Visualization
+
+### Essential Causal Inference Libraries (CRITICAL FOR CAUSAL ANALYSIS)
+- econml>=0.13.0: Microsoft EconML (causal forests, DiD, synthetic control, RDD)
+- linearmodels>=4.25.0: Panel data models, IV regression, difference-in-differences
+- arch>=5.3.0: Financial econometrics, bootstrap methods, robust inference
+
+### Advanced Methods for Pipeline Analysis (CORE AVAILABLE)
+- networkx>=2.8.0: Graph analysis, flow centrality, spillover effects
+- cvxpy>=1.3.0: Convex optimization for constrained problems
+- ruptures>=1.1.0: Changepoint detection for regime analysis
+- umap-learn>=0.5.0, hdbscan>=0.8.0: Advanced clustering for segmentation
+- numba>=0.56.0: JIT compilation for performance
+
+### Key Usage Examples for Causal Analysis:
+
+```python
+# Difference-in-Differences
+from linearmodels.panel import PanelOLS
+model = PanelOLS(dependent, exog, entity_effects=True, time_effects=True)
+
+# Causal Forests for Heterogeneous Effects
+from econml.dml import CausalForestDML
+cf = CausalForestDML()
+
+# VAR Models for Lead-Lag Analysis
+from statsmodels.tsa.vector_ar.var_model import VAR
+var_model = VAR(data)
+
+# Synthetic Control
+from econml.dml import SparseLinearDML  # For synthetic control-style methods
+
+# Changepoint Detection for Regime Analysis
+import ruptures as rpt
+algo = rpt.Pelt(model="rbf").fit(signal)
+
+# Network Analysis for Spillover Effects
+import networkx as nx
+G = nx.from_pandas_edgelist(flow_data)
+centrality = nx.betweenness_centrality(G)
+```
+
 {{ additional_libraries }}
 
 ## OUTPUT REQUIREMENTS
