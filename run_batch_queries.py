@@ -144,7 +144,7 @@ def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool =
 
     # Build command
     cmd = [
-        sys.executable, "-u", "pydantic_agent_executor.py",  # -u ensures unbuffered child output for live streaming
+        sys.executable, "-u", "transparent_agent_executor.py",  # -u ensures unbuffered child output for live streaming
         "--task", query["query"],
         "--query-id", query["id"],
         *modified_args
