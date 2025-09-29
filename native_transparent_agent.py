@@ -685,11 +685,11 @@ ACTION: {step_data.get('action_type', 'N/A')} with parameters: {step_data.get('a
 
 EXECUTED CODE (if applicable):
 ```python
-{executed_code[:2000] if executed_code else 'No code executed'}
+{executed_code if executed_code else 'No code executed'}
 ```
 
 EXECUTION RESULTS:
-{execution_results[:1500] if execution_results else 'No results available'}
+{execution_results if execution_results else 'No results available'}
 
 {previous_feedback_context}
 
@@ -712,12 +712,14 @@ Provide detailed feedback in this JSON format:
     "data_appropriateness": <1-10 integer>,
     "issues": ["list", "of", "specific", "methodological", "issues"],
     "suggestions": ["detailed", "improvement", "recommendations"],
-    "improved_code": "If applicable, provide improved Python code that addresses identified issues",
+    "improved_code": "REQUIRED: Provide specific, executable Python code that addresses identified issues. Include complete working examples, not just descriptions. Focus on practical implementation that can be executed immediately.",
     "allow_finish": <true/false>,
     "causal_assessment": "Brief assessment of whether this constitutes proper causal analysis"
 }}
 
-CRITICAL FOCUS: This should be a rigorous causal inference analysis, not just descriptive statistics. Evaluate accordingly."""
+CRITICAL FOCUS: This should be a rigorous causal inference analysis, not just descriptive statistics. Evaluate accordingly.
+
+IMPORTANT: Respond with ONLY valid JSON. Do not include any text before or after the JSON object. Ensure all strings are properly escaped and the JSON is valid."""
 
             response = litellm.completion(
                 model=self.critic_model,
@@ -740,18 +742,25 @@ CRITICAL FOCUS: This should be a rigorous causal inference analysis, not just de
             try:
                 import json
                 feedback = json.loads(feedback_text)
-            except json.JSONDecodeError:
+            except json.JSONDecodeError as e:
+                # Save the raw response for debugging and preserve all feedback
+                raw_response_file = f"{self.context.workspace_dir}/critic_raw_response_{self.context.iteration}.txt"
+                with open(raw_response_file, 'w') as f:
+                    f.write(feedback_text)
+
+                # Use the raw text as suggestions - this preserves all the critic's feedback
+                # The analyst will get the complete response even if JSON parsing fails
                 feedback = {
                     "quality_score": 5,
                     "causal_inference_rigor": 5,
                     "trading_strategy_relevance": 5,
                     "statistical_methodology": 5,
                     "data_appropriateness": 5,
-                    "issues": ["Could not parse critic response"],
-                    "suggestions": [feedback_text],
-                    "improved_code": "",
+                    "issues": [f"JSON parsing failed: {str(e)} - Raw response saved to {raw_response_file}"],
+                    "suggestions": [f"Raw critic response (JSON parsing failed): {feedback_text}"],
+                    "improved_code": "",  # Will be extracted by analyst from suggestions
                     "allow_finish": False,
-                    "causal_assessment": "Unable to assess due to parsing error"
+                    "causal_assessment": "Raw critic response preserved - analyst should extract insights manually"
                 }
 
             # Add token usage data to feedback
@@ -818,6 +827,7 @@ CRITICAL FOCUS: This should be a rigorous causal inference analysis, not just de
                 "issues": critic_feedback.get("issues", []),
                 "suggestions": critic_feedback.get("suggestions", []),
                 "causal_assessment": critic_feedback.get("causal_assessment", ""),
+                "improved_code": critic_feedback.get("improved_code", ""),
                 "has_improved_code": bool(critic_feedback.get("improved_code", "").strip()),
                 "input_tokens": critic_feedback.get("token_usage", {}).get("input_tokens", 0),
                 "output_tokens": critic_feedback.get("token_usage", {}).get("output_tokens", 0),
@@ -950,6 +960,7 @@ You must address these methodological concerns before providing a final answer. 
                 "issues": critic_feedback.get("issues", []),
                 "suggestions": critic_feedback.get("suggestions", []),
                 "causal_assessment": critic_feedback.get("causal_assessment", ""),
+                "improved_code": critic_feedback.get("improved_code", ""),
                 "has_improved_code": bool(critic_feedback.get("improved_code", "").strip()),
                 "input_tokens": critic_feedback.get("token_usage", {}).get("input_tokens", 0),
                 "output_tokens": critic_feedback.get("token_usage", {}).get("output_tokens", 0),
@@ -1008,6 +1019,7 @@ You must address these methodological concerns before providing a final answer. 
             "issues": critic_feedback.get("issues", []),
             "suggestions": critic_feedback.get("suggestions", []),
             "causal_assessment": critic_feedback.get("causal_assessment", ""),
+            "improved_code": critic_feedback.get("improved_code", ""),
             "has_improved_code": bool(critic_feedback.get("improved_code", "").strip()),
             "input_tokens": critic_feedback.get("token_usage", {}).get("input_tokens", 0),
             "output_tokens": critic_feedback.get("token_usage", {}).get("output_tokens", 0),
@@ -1033,7 +1045,7 @@ You must address these methodological concerns before providing a final answer. 
 
         if last_feedback.get("suggestions"):
             guidance += "Please incorporate their suggestions: "
-            guidance += "; ".join(last_feedback.get("suggestions", [])[:3])  # Limit to top 3
+            guidance += "; ".join(last_feedback.get("suggestions", []))
 
         if last_feedback.get("improved_code") and last_feedback.get("improved_code").strip():
             guidance += "\n\nThe critic also provided improved code you should consider implementing."
@@ -1190,6 +1202,7 @@ You must address these methodological concerns before providing a final answer. 
             "issues": critic_feedback.get("issues", []),
             "suggestions": critic_feedback.get("suggestions", []),
             "causal_assessment": critic_feedback.get("causal_assessment", ""),
+            "improved_code": critic_feedback.get("improved_code", ""),
             "has_improved_code": bool(critic_feedback.get("improved_code", "").strip()),
             "input_tokens": critic_feedback.get("token_usage", {}).get("input_tokens", 0),
             "output_tokens": critic_feedback.get("token_usage", {}).get("output_tokens", 0),
@@ -1223,7 +1236,7 @@ You must address these methodological concerns before providing a final answer. 
             critic_message += f"**Expert Recommendations:** {'; '.join(critic_feedback.get('suggestions', []))}\n\n"
 
         if critic_feedback.get('improved_code') and critic_feedback.get('improved_code').strip():
-            critic_message += f"**Improved Code Suggestion:**\n```python\n{critic_feedback.get('improved_code')[:1000]}\n```\n"
+            critic_message += f"**Improved Code Suggestion:**\n```python\n{critic_feedback.get('improved_code')}\n```\n"
 
         # Add critic feedback as a separate user message to guide next iteration
         self.conversation_history.append({

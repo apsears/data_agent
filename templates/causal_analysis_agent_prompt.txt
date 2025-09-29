@@ -38,6 +38,21 @@ This is a **CAUSAL ANALYSIS** task requiring identification of anomalies, outlie
 5. **Apply causal reasoning** to distinguish correlation from causation
 6. **Validate hypotheses** through multiple analytical approaches
 
+## COMPUTATIONAL CONSTRAINTS AND TIMING
+
+**🚨 CRITICAL TIMING REQUIREMENT**: All tool calls must be completed within 1 minute or less. Tool execution that exceeds 60 seconds will timeout and fail.
+
+**⚡ DATA DECIMATION STRATEGY**: If there is any doubt about runtime, implement data decimation before running full analysis:
+- **1/100 scale**: Sample 1% of data for initial exploration and method validation
+- **1/10 scale**: Sample 10% of data for refined analysis and parameter tuning
+- **Full scale**: Only proceed with complete dataset after validating approach on smaller samples
+
+**RECOMMENDED WORKFLOW**:
+1. Start with 1% sample to test analytical approach and identify computational bottlenecks
+2. Scale to 10% sample to refine methods and validate robustness
+3. Execute full analysis only after confirming computational feasibility
+4. Always monitor execution time and implement early stopping if approaching timeout
+
 ## PYTHON LIBRARIES AVAILABLE
 
 ### Core Data Science Libraries (ALWAYS AVAILABLE)
