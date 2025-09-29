@@ -401,9 +401,10 @@ Please retry with BOTH parameters included."""
 class NativeReActExecutor:
     """Native ReAct loop using Anthropic's built-in tool calling"""
 
-    def __init__(self, context: AgentContext, model_name: str):
+    def __init__(self, context: AgentContext, model_name: str, analyst_max_tokens: int = 16000):
         self.context = context
         self.model_name = model_name
+        self.analyst_max_tokens = analyst_max_tokens
         self.client = anthropic.Anthropic()
         self.tool_executor = NativeToolExecutor(context)
         self.conversation_history = []
@@ -448,27 +449,28 @@ class NativeReActExecutor:
             })
 
             try:
-                # Make API call with native tool support
-                response = self.client.messages.create(
-                    model=self.model_name.replace("anthropic:", ""),
-                    max_tokens=self.analyst_max_tokens,
+                # Make API call using unified LLM interface
+                response = unified_llm_completion(
+                    model=self.model_name,
                     messages=self.conversation_history,
                     system=system_prompt,
-                    tools=self.tools
+                    tools=self.tools,
+                    max_tokens=self.analyst_max_tokens,
+                    temperature=0.0
                 )
 
                 assistant_content = ""
                 tool_results = []
 
                 # Process response content
-                for content_block in response.content:
-                    if content_block.type == "text":
-                        assistant_content += content_block.text
-                    elif content_block.type == "tool_use":
-                        # Execute tool using native structure
-                        tool_name = content_block.name
-                        tool_input = content_block.input
-                        tool_use_id = content_block.id
+                for content_block in response["content"]:
+                    if content_block["type"] == "text":
+                        assistant_content += content_block["text"]
+                    elif content_block["type"] == "tool_use":
+                        # Execute tool using normalized structure
+                        tool_name = content_block["name"]
+                        tool_input = content_block["input"]
+                        tool_use_id = content_block["id"]
 
                         self.context.log_react_event("tool_execution_start", {
                             "iteration": iteration,
@@ -502,19 +504,21 @@ class NativeReActExecutor:
                     assistant_message["content"].append({"type": "text", "text": assistant_content})
 
                 # Add tool uses to assistant message
-                for content_block in response.content:
-                    if content_block.type == "tool_use":
+                if "tool_calls" in response and response["tool_calls"]:
+                    for tool_call in response["tool_calls"]:
                         assistant_message["content"].append({
                             "type": "tool_use",
-                            "id": content_block.id,
-                            "name": content_block.name,
-                            "input": content_block.input
+                            "id": tool_call["id"],
+                            "name": tool_call["function"]["name"],
+                            "input": json.loads(tool_call["function"]["arguments"])
                         })
 
                 self.conversation_history.append(assistant_message)
 
                 # Add tool results if any
                 if tool_results:
+                    # For OpenAI models, we'll let unified_llm_completion handle the conversion
+                    # For Anthropic models, use the standard format
                     self.conversation_history.append({
                         "role": "user",
                         "content": tool_results
@@ -533,7 +537,10 @@ class NativeReActExecutor:
                     "iteration": iteration,
                     "response_length": len(assistant_content),
                     "tools_called": len(tool_results),
-                    "response_preview": assistant_content[:200] + "..." if len(assistant_content) > 200 else assistant_content
+                    "response_preview": assistant_content[:200] + "..." if len(assistant_content) > 200 else assistant_content,
+                    "input_tokens": response["usage"]["input_tokens"],
+                    "output_tokens": response["usage"]["output_tokens"],
+                    "total_tokens": response["usage"]["input_tokens"] + response["usage"]["output_tokens"]
                 })
 
             except Exception as e:
@@ -553,12 +560,193 @@ class NativeReActExecutor:
         return "Maximum iterations reached. The agent was unable to complete the task within the allowed number of steps."
 
 
+def unified_llm_completion(
+    model: str,
+    messages: List[Dict[str, str]],
+    system: Optional[str] = None,
+    tools: Optional[List[Dict]] = None,
+    max_tokens: int = 4000,
+    temperature: float = 0.0
+) -> Dict[str, Any]:
+    """
+    Unified LLM interface supporting both Anthropic and OpenAI models via LiteLLM.
+
+    Args:
+        model: Model identifier (e.g., "anthropic:claude-sonnet-4-20250514", "openai:gpt-4o")
+        messages: List of message dictionaries
+        system: System prompt (optional)
+        tools: Tool definitions in Anthropic format
+        max_tokens: Maximum response tokens
+        temperature: Response temperature
+
+    Returns:
+        Normalized response dictionary with tool calls and usage information
+    """
+    # Prepare LiteLLM request
+    litellm_messages = []
+
+    # Add system message if provided
+    if system:
+        litellm_messages.append({"role": "system", "content": system})
+
+    # Add conversation messages with format conversion for OpenAI
+    for msg in messages:
+        if model.startswith("openai:"):
+            if msg.get("role") == "assistant" and isinstance(msg.get("content"), list):
+                # Convert Anthropic assistant format to OpenAI format
+                converted_content = ""
+                tool_calls = []
+
+                for content_block in msg["content"]:
+                    if content_block.get("type") == "tool_use":
+                        # Convert Anthropic tool_use to OpenAI tool_calls
+                        tool_calls.append({
+                            "id": content_block["id"],
+                            "type": "function",
+                            "function": {
+                                "name": content_block["name"],
+                                "arguments": json.dumps(content_block["input"])
+                            }
+                        })
+                    elif content_block.get("type") == "text":
+                        converted_content += content_block["text"]
+
+                # Create OpenAI assistant message
+                assistant_msg = {
+                    "role": "assistant",
+                    "content": converted_content if converted_content else None
+                }
+                if tool_calls:
+                    assistant_msg["tool_calls"] = tool_calls
+
+                litellm_messages.append(assistant_msg)
+
+            elif msg.get("role") == "user" and isinstance(msg.get("content"), list):
+                # Convert Anthropic tool result format to OpenAI format
+                converted_content = ""
+                tool_results = []
+
+                for content_block in msg["content"]:
+                    if content_block.get("type") == "tool_result":
+                        # For OpenAI, tool results go in a separate "tool" role message
+                        tool_results.append({
+                            "role": "tool",
+                            "content": content_block["content"],
+                            "tool_call_id": content_block["tool_use_id"]
+                        })
+                    elif content_block.get("type") == "text":
+                        converted_content += content_block["text"]
+
+                # Add user message if it has text content
+                if converted_content.strip():
+                    litellm_messages.append({
+                        "role": "user",
+                        "content": converted_content
+                    })
+
+                # Add tool result messages
+                litellm_messages.extend(tool_results)
+            else:
+                # For simple text messages, add as-is
+                litellm_messages.append(msg)
+        else:
+            # For Anthropic or simple text messages, add as-is
+            litellm_messages.append(msg)
+
+    # Convert model name to LiteLLM format and handle tools
+    if model.startswith("anthropic:"):
+        # For Anthropic: Use claude-3-5-haiku-20241022 instead of anthropic:claude-3-5-haiku-20241022
+        litellm_model = model.replace("anthropic:", "")
+        litellm_tools = tools  # Keep Anthropic format
+    elif model.startswith("openai:"):
+        # For OpenAI: Use gpt-4o instead of openai:gpt-4o
+        litellm_model = model.replace("openai:", "")
+        # Convert tools to OpenAI format if needed
+        litellm_tools = None
+        if tools:
+            litellm_tools = []
+            for tool in tools:
+                openai_tool = {
+                    "type": "function",
+                    "function": {
+                        "name": tool["name"],
+                        "description": tool["description"],
+                        "parameters": tool["input_schema"]
+                    }
+                }
+                litellm_tools.append(openai_tool)
+    else:
+        # Fallback for unknown provider
+        litellm_model = model
+        litellm_tools = tools
+
+    # Make LiteLLM call
+    response = litellm.completion(
+        model=litellm_model,
+        messages=litellm_messages,
+        tools=litellm_tools,
+        max_tokens=max_tokens,
+        temperature=temperature
+    )
+
+    # Normalize response format
+    normalized_response = {
+        "content": [],
+        "usage": {
+            "input_tokens": getattr(response.usage, "prompt_tokens", 0),
+            "output_tokens": getattr(response.usage, "completion_tokens", 0)
+        }
+    }
+
+    # Handle text content
+    message_content = response.choices[0].message.content
+    if message_content:
+        normalized_response["content"].append({
+            "type": "text",
+            "text": message_content
+        })
+
+    # Handle tool calls (normalize between providers)
+    tool_calls = getattr(response.choices[0].message, "tool_calls", None)
+    if tool_calls:
+        for tool_call in tool_calls:
+            if model.startswith("openai:"):
+                # OpenAI format - convert to Anthropic format
+                normalized_response["content"].append({
+                    "type": "tool_use",
+                    "id": tool_call.id,
+                    "name": tool_call.function.name,
+                    "input": json.loads(tool_call.function.arguments)
+                })
+            else:
+                # Anthropic format via LiteLLM - convert properly
+                if hasattr(tool_call, 'function'):
+                    # LiteLLM may wrap Anthropic responses in OpenAI format
+                    normalized_response["content"].append({
+                        "type": "tool_use",
+                        "id": tool_call.id,
+                        "name": tool_call.function.name,
+                        "input": json.loads(tool_call.function.arguments)
+                    })
+                else:
+                    # Direct Anthropic format
+                    normalized_response["content"].append({
+                        "type": "tool_use",
+                        "id": getattr(tool_call, 'id', ''),
+                        "name": getattr(tool_call, 'name', ''),
+                        "input": getattr(tool_call, 'input', {})
+                    })
+
+    return normalized_response
+
+
 class NativeTransparentAgent:
     """Crystal-clear agent using native Anthropic tool calling"""
 
-    def __init__(self, model: str, max_iterations: int = 10):
+    def __init__(self, model: str, max_iterations: int = 10, analyst_max_tokens: int = 16000):
         self.model = model
         self.max_iterations = max_iterations
+        self.analyst_max_tokens = analyst_max_tokens
 
     def execute_query(self, context: AgentContext, system_prompt: str) -> str:
         """Main execution loop with native tool calling"""
@@ -570,7 +758,7 @@ class NativeTransparentAgent:
         })
 
         # Create ReAct executor with native tool calling
-        react_executor = NativeReActExecutor(context, self.model)
+        react_executor = NativeReActExecutor(context, self.model, self.analyst_max_tokens)
 
         try:
             # Execute ReAct cycle
@@ -721,32 +909,45 @@ CRITICAL FOCUS: This should be a rigorous causal inference analysis, not just de
 
 IMPORTANT: Respond with ONLY valid JSON. Do not include any text before or after the JSON object. Ensure all strings are properly escaped and the JSON is valid."""
 
-            response = litellm.completion(
+            response = unified_llm_completion(
                 model=self.critic_model,
                 messages=[
-                    {"role": "system", "content": "You are a critical evaluator providing structured feedback."},
                     {"role": "user", "content": critic_prompt}
                 ],
+                system="You are a critical evaluator providing structured feedback.",
                 temperature=0.3,
                 max_tokens=self.critic_max_tokens
             )
 
-            feedback_text = response.choices[0].message.content
+            # Extract text content from normalized response format
+            feedback_text = ""
+            for content_block in response["content"]:
+                if content_block["type"] == "text":
+                    feedback_text += content_block["text"]
 
             # Extract token usage from critic response
-            critic_input_tokens = getattr(response.usage, 'prompt_tokens', 0) if hasattr(response, 'usage') else 0
-            critic_output_tokens = getattr(response.usage, 'completion_tokens', 0) if hasattr(response, 'usage') else 0
+            critic_input_tokens = response.get("usage", {}).get("input_tokens", 0)
+            critic_output_tokens = response.get("usage", {}).get("output_tokens", 0)
             critic_total_cost = calculate_token_cost(self.critic_model, critic_input_tokens, critic_output_tokens)
 
             # Try to parse JSON, fallback to text if parsing fails
             try:
                 import json
-                feedback = json.loads(feedback_text)
+                # Handle case where feedback_text might still be a list
+                if isinstance(feedback_text, list):
+                    # Convert list to string if needed
+                    feedback_text_str = str(feedback_text[0]) if feedback_text else ""
+                else:
+                    feedback_text_str = feedback_text
+
+                feedback = json.loads(feedback_text_str)
             except json.JSONDecodeError as e:
                 # Save the raw response for debugging and preserve all feedback
-                raw_response_file = f"{self.context.workspace_dir}/critic_raw_response_{self.context.iteration}.txt"
+                import time
+                timestamp = int(time.time())
+                raw_response_file = f"{self.context.workspace_dir}/critic_raw_response_{timestamp}.txt"
                 with open(raw_response_file, 'w') as f:
-                    f.write(feedback_text)
+                    f.write(str(feedback_text))
 
                 # Use the raw text as suggestions - this preserves all the critic's feedback
                 # The analyst will get the complete response even if JSON parsing fails
@@ -888,56 +1089,58 @@ You must address these methodological concerns before providing a final answer. 
         step_data = {"iteration": iteration}
 
         # Process response content - extract thought and action
-        for content_block in response.content:
-            if content_block.type == "text":
-                assistant_content += content_block.text
-                step_data["thought"] = content_block.text
-            elif content_block.type == "tool_use":
-                # Extract action details
-                tool_name = content_block.name
-                tool_input = content_block.input
-                tool_use_id = content_block.id
+        # Get text content
+        if "content" in response and response["content"]:
+            assistant_content = response["content"]
+            step_data["thought"] = response["content"]
 
-                step_data["action_type"] = tool_name
-                step_data["action_params"] = tool_input
+        # Process tool calls
+        if "tool_calls" in response and response["tool_calls"]:
+            tool_call = response["tool_calls"][0]  # Get first tool call
+            tool_name = tool_call["function"]["name"]
+            tool_input = json.loads(tool_call["function"]["arguments"])
+            tool_use_id = tool_call["id"]
 
-                self.context.log_react_event("explicit_tool_execution_start", {
-                    "iteration": iteration,
-                    "tool_name": tool_name,
-                    "tool_input": tool_input,
-                    "tool_use_id": tool_use_id
-                })
+            step_data["action_type"] = tool_name
+            step_data["action_params"] = tool_input
 
-                # Special handling for 'stop' action - need to check critic first
-                if tool_name == "stop":
-                    should_stop, final_answer = self._handle_stop_action(tool_input, assistant_content, iteration, user_query)
-                    if should_stop:
-                        return final_answer, tool_results, step_data, False  # should_continue = False
-                    else:
-                        return assistant_content, tool_results, step_data, True  # Continue to next iteration
+            self.context.log_react_event("explicit_tool_execution_start", {
+                "iteration": iteration,
+                "tool_name": tool_name,
+                "tool_input": tool_input,
+                "tool_use_id": tool_use_id
+            })
 
-                # Execute the tool
-                tool_result = self.tool_executor.execute_tool(tool_name, tool_input)
-                step_data["observation"] = tool_result.content
+            # Special handling for 'stop' action - need to check critic first
+            if tool_name == "stop":
+                should_stop, final_answer = self._handle_stop_action(tool_input, assistant_content, iteration, user_query)
+                if should_stop:
+                    return final_answer, tool_results, step_data, False  # should_continue = False
+                else:
+                    return assistant_content, tool_results, step_data, True  # Continue to next iteration
 
-                self.context.log_react_event("explicit_tool_execution_complete", {
-                    "iteration": iteration,
-                    "tool_name": tool_name,
-                    "success": tool_result.success,
-                    "result_length": len(tool_result.content),
-                    "duration": tool_result.duration,
-                    "input_tokens": tool_result.input_tokens or 0,
-                    "output_tokens": tool_result.output_tokens or 0,
-                    "total_cost": tool_result.total_cost or 0.0
-                })
+            # Execute the tool
+            tool_result = self.tool_executor.execute_tool(tool_name, tool_input)
+            step_data["observation"] = tool_result.content
 
-                # Add tool result to conversation
-                tool_results.append({
-                    "type": "tool_result",
-                    "tool_use_id": tool_use_id,
-                    "content": tool_result.content,
-                    "is_error": not tool_result.success
-                })
+            self.context.log_react_event("explicit_tool_execution_complete", {
+                "iteration": iteration,
+                "tool_name": tool_name,
+                "success": tool_result.success,
+                "result_length": len(tool_result.content),
+                "duration": tool_result.duration,
+                "input_tokens": tool_result.input_tokens or 0,
+                "output_tokens": tool_result.output_tokens or 0,
+                "total_cost": tool_result.total_cost or 0.0
+            })
+
+            # Add tool result to conversation
+            tool_results.append({
+                "type": "tool_result",
+                "tool_use_id": tool_use_id,
+                "content": tool_result.content,
+                "is_error": not tool_result.success
+            })
 
         return assistant_content, tool_results, step_data, True
 
@@ -1056,13 +1259,14 @@ You must address these methodological concerns before providing a final answer. 
         })
 
     def _get_analyst_response(self, system_prompt: str) -> Any:
-        """Get response from analyst model"""
-        return self.anthropic_client.messages.create(
-            model=self.analyst_model.replace("anthropic:", ""),
-            max_tokens=self.analyst_max_tokens,
+        """Get response from analyst model using unified LLM interface"""
+        return unified_llm_completion(
+            model=self.analyst_model,
             messages=self.conversation_history,
             system=system_prompt,
-            tools=self.tools
+            tools=self.tools,
+            max_tokens=self.analyst_max_tokens,
+            temperature=0.0
         )
 
     def _process_response_content(self, response: Any, iteration: int) -> tuple[str, list, dict]:
@@ -1071,15 +1275,15 @@ You must address these methodological concerns before providing a final answer. 
         tool_results = []
         step_data = {"iteration": iteration}
 
-        # Extract thought and actions from response
-        for content_block in response.content:
-            if content_block.type == "text":
-                assistant_content += content_block.text
-                step_data["thought"] = content_block.text
-            elif content_block.type == "tool_use":
-                tool_name = content_block.name
-                tool_input = content_block.input
-                tool_use_id = content_block.id
+        # Extract thought and actions from response (normalized format)
+        for content_block in response["content"]:
+            if content_block["type"] == "text":
+                assistant_content += content_block["text"]
+                step_data["thought"] = content_block["text"]
+            elif content_block["type"] == "tool_use":
+                tool_name = content_block["name"]
+                tool_input = content_block["input"]
+                tool_use_id = content_block["id"]
 
                 step_data["action_type"] = tool_name
                 step_data["action_params"] = tool_input
@@ -1154,31 +1358,59 @@ You must address these methodological concerns before providing a final answer. 
         def __init__(self, final_answer):
             self.final_answer = final_answer
 
+    def _build_assistant_message(self, response: Any, assistant_content: str) -> Dict[str, Any]:
+        """Build assistant message from response content"""
+        if "content" in response and response["content"]:
+            # Anthropic format - use normalized response content directly
+            return {"role": "assistant", "content": response["content"]}
+
+        # Fallback format construction
+        content = []
+        if assistant_content:
+            content.append({"type": "text", "text": assistant_content})
+
+        # Add tool uses for OpenAI format
+        if "tool_calls" in response and response["tool_calls"]:
+            content.extend(self._convert_tool_calls_to_content(response["tool_calls"]))
+
+        return {"role": "assistant", "content": content}
+
+    def _convert_tool_calls_to_content(self, tool_calls: list) -> list:
+        """Convert OpenAI tool calls to Anthropic content format"""
+        return [
+            {
+                "type": "tool_use",
+                "id": tool_call["id"],
+                "name": tool_call["function"]["name"],
+                "input": json.loads(tool_call["function"]["arguments"])
+            }
+            for tool_call in tool_calls
+        ]
+
+    def _build_tool_result_message(self, tool_results: list) -> Dict[str, Any]:
+        """Build user message with tool results for unified_llm_completion handling"""
+        tool_result_content = [
+            {
+                "type": "tool_result",
+                "tool_use_id": tool_result["tool_use_id"],
+                "content": tool_result["content"],
+                "is_error": tool_result.get("is_error", False)
+            }
+            for tool_result in tool_results
+        ]
+
+        return {"role": "user", "content": tool_result_content}
+
     def _add_messages_to_conversation(self, response: Any, assistant_content: str, tool_results: list):
         """Add assistant message and tool results to conversation history"""
         # Add assistant message
-        assistant_message = {"role": "assistant", "content": []}
-        if assistant_content:
-            assistant_message["content"].append({"type": "text", "text": assistant_content})
-
-        # Add tool uses to assistant message
-        for content_block in response.content:
-            if content_block.type == "tool_use":
-                assistant_message["content"].append({
-                    "type": "tool_use",
-                    "id": content_block.id,
-                    "name": content_block.name,
-                    "input": content_block.input
-                })
-
+        assistant_message = self._build_assistant_message(response, assistant_content)
         self.conversation_history.append(assistant_message)
 
         # Add tool results if any
         if tool_results:
-            self.conversation_history.append({
-                "role": "user",
-                "content": tool_results
-            })
+            tool_result_message = self._build_tool_result_message(tool_results)
+            self.conversation_history.append(tool_result_message)
 
     def _run_critic_evaluation(self, step_data: dict, user_query: str, iteration: int):
         """Run critic evaluation and add feedback to conversation"""
@@ -1388,9 +1620,9 @@ class ExplicitReActAgent:
             raise
 
 
-def create_native_transparent_agent(model_name: str, max_iterations: int = 10) -> NativeTransparentAgent:
+def create_native_transparent_agent(model_name: str, max_iterations: int = 10, analyst_max_tokens: int = 16000) -> NativeTransparentAgent:
     """Create a native transparent agent with the specified model"""
-    return NativeTransparentAgent(model_name, max_iterations)
+    return NativeTransparentAgent(model_name, max_iterations, analyst_max_tokens)
 
 
 def create_explicit_react_agent(analyst_model: str,

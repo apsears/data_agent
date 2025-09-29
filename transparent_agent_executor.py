@@ -358,8 +358,8 @@ def main():
 
         # Use config values for models if not provided via command line
         if args.react_explicit:
-            analyst_model = args.analyst_model or config['explicit_react']['analyst_model']
-            critic_model = args.critic_model or config['explicit_react']['critic_model']
+            analyst_model = args.analyst_model or args.model or config['explicit_react']['analyst_model']
+            critic_model = args.critic_model or args.model or config['explicit_react']['critic_model']
             analyst_max_tokens = config['explicit_react']['max_tokens']['analyst']
             critic_max_tokens = config['explicit_react']['max_tokens']['critic']
 

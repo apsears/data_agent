@@ -111,38 +111,125 @@ def select_template_for_query(query: Dict[str, Any], default_template: str) -> s
     return selected_template
 
 
-def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool = True, worker_id: int = 0) -> Dict[str, Any]:
-    """Run a single query using run_agent.py and capture results.
+def build_query_command(query: Dict[str, Any], base_args: List[str], worker_id: int = 0) -> List[str]:
+    """Build command arguments for a single query, supporting per-query configuration."""
+    worker_prefix = f"[Worker-{worker_id}]" if worker_id > 0 else ""
 
+    # Get per-query config if available
+    query_config = query.get("config", {})
+
+    # Start with base arguments and apply per-query overrides
+    modified_args = []
+    skip_next = False
+
+    for i, arg in enumerate(base_args):
+        if skip_next:
+            skip_next = False
+            continue
+
+        # Handle specific argument overrides
+        if arg == "--template" and i + 1 < len(base_args):
+            # Use query-specific template or select based on analysis type
+            if "template" in query_config:
+                selected_template = query_config["template"]
+            else:
+                default_template = base_args[i + 1]
+                selected_template = select_template_for_query(query, default_template)
+
+            modified_args.extend(["--template", selected_template])
+            print(f"{worker_prefix}Using template: {selected_template}")
+            skip_next = True
+            continue
+
+        elif arg == "--model" and i + 1 < len(base_args):
+            # Use query-specific analyst model if specified
+            analyst_model = query_config.get("analyst_model", base_args[i + 1])
+            modified_args.extend(["--model", analyst_model])
+            print(f"{worker_prefix}Using analyst model: {analyst_model}")
+            skip_next = True
+            continue
+
+        elif arg == "--max-tools" and i + 1 < len(base_args):
+            # Use query-specific max tools if specified
+            max_tools = str(query_config.get("max_tools", base_args[i + 1]))
+            modified_args.extend(["--max-tools", max_tools])
+            skip_next = True
+            continue
+
+        elif arg == "--timeout" and i + 1 < len(base_args):
+            # Use query-specific timeout if specified
+            timeout = str(query_config.get("timeout", base_args[i + 1]))
+            modified_args.extend(["--timeout", timeout])
+            skip_next = True
+            continue
+
+        elif arg in ["--template", "--model", "--max-tools", "--timeout"] and i + 1 < len(base_args):
+            # Skip these as they were handled above
+            skip_next = True
+            continue
+        else:
+            modified_args.append(arg)
+
+    # Add query-specific flags that aren't in base_args
+    agent_mode = query_config.get("agent_mode", "standard")
+    if agent_mode == "explicit_react" and "--react-explicit" not in modified_args:
+        modified_args.append("--react-explicit")
+        print(f"{worker_prefix}Using explicit ReAct mode")
+
+    enable_critic = query_config.get("enable_critic", False)
+    if enable_critic and "--critic" not in modified_args:
+        modified_args.append("--critic")
+        print(f"{worker_prefix}Critic enabled")
+
+    # Handle critic model if specified and critic is enabled
+    if enable_critic and "critic_model" in query_config:
+        critic_model = query_config["critic_model"]
+        modified_args.extend(["--critic-model", critic_model])
+        print(f"{worker_prefix}Using critic model: {critic_model}")
+
+    # Handle analyst model override for explicit ReAct mode
+    if agent_mode == "explicit_react" and "analyst_model" in query_config:
+        analyst_model = query_config["analyst_model"]
+        modified_args.extend(["--analyst-model", analyst_model])
+        print(f"{worker_prefix}Using analyst model: {analyst_model}")
+
+    return modified_args
+
+
+def run_single_query(query: Dict[str, Any], base_args: List[str], stream: bool = True, worker_id: int = 0) -> Dict[str, Any]:
+    """Run a single query using transparent_agent_executor.py and capture results.
+
+    Supports per-query configuration for models, templates, and agent modes.
     When stream=True, child stdout is printed live to the console while being captured
     for later parsing. This gives real-time progress visibility.
     """
     worker_prefix = f"[Worker-{worker_id}]" if worker_id > 0 else ""
     print(f"\n{'='*60}")
-    print(f"{worker_prefix}Running Query {query['id']}: {query['category']}")
+    print(f"{worker_prefix}Running Query {query['id']}: {query.get('category', 'unknown')}")
     print(f"{worker_prefix}Query: {query['query']}")
+
+    # Show query config if present
+    if "config" in query:
+        config_summary = []
+        config = query["config"]
+        if "analyst_model" in config:
+            config_summary.append(f"analyst: {config['analyst_model']}")
+        if "critic_model" in config:
+            config_summary.append(f"critic: {config['critic_model']}")
+        if "template" in config:
+            config_summary.append(f"template: {Path(config['template']).name}")
+        if "agent_mode" in config:
+            config_summary.append(f"mode: {config['agent_mode']}")
+
+        if config_summary:
+            print(f"{worker_prefix}Config: {', '.join(config_summary)}")
+
     print(f"{'='*60}")
 
-    # Select appropriate template based on analysis type
-    selected_template = None
-    modified_args = []
-    for i, arg in enumerate(base_args):
-        if arg == "--template" and i + 1 < len(base_args):
-            default_template = base_args[i + 1]
-            selected_template = select_template_for_query(query, default_template)
-            modified_args.extend(["--template", selected_template])
-            # Skip the next argument since we handled it
-            continue
-        elif i > 0 and base_args[i - 1] == "--template":
-            # Skip this argument since it was handled above
-            continue
-        else:
-            modified_args.append(arg)
+    # Build command with per-query configuration
+    modified_args = build_query_command(query, base_args, worker_id)
 
-    if selected_template:
-        print(f"{worker_prefix}Using template: {selected_template}")
-
-    # Build command
+    # Build final command
     cmd = [
         sys.executable, "-u", "transparent_agent_executor.py",  # -u ensures unbuffered child output for live streaming
         "--task", query["query"],

@@ -1,8 +1,8 @@
 # Claude Data Agent
 
-> **🚀 September 2025 Update:** This project has been completely migrated from PydanticAI to **native Anthropic tool calling** with massive improvements: 86.5% cost reduction, 5/5 accuracy scores, and simplified architecture. The system now includes automatic file versioning, deterministic execution, **idea generation MVP**, and **formal ReAct loop with expert critic system**. See [migration docs](docs/2025_09_27_20_45_pydantic_ai_removal_complete.md) and [comprehensive progress report](docs/2025_09_28_16_45_00_comprehensive_progress_report.md) for details.
+> **🚀 September 2025 Update:** This project has been completely migrated from PydanticAI to **native Anthropic tool calling** with massive improvements: 86.5% cost reduction, 5/5 accuracy scores, and simplified architecture. The system now includes automatic file versioning, deterministic execution, **idea generation MVP**, **formal ReAct loop with expert critic system**, and **unified multi-provider LLM support via LiteLLM**. See [migration docs](docs/2025_09_27_20_45_pydantic_ai_removal_complete.md), [comprehensive progress report](docs/2025_09_28_16_45_00_comprehensive_progress_report.md), and [LiteLLM migration](docs/2025_09_28_23_28_15_litellm_migration_progress.md) for details.
 
-A sophisticated agentic system built with **native Anthropic tool calling** that gives Claude the ability to:
+A sophisticated agentic system built with **unified multi-provider LLM support** that gives both Claude and GPT models the ability to:
 - Write and execute Python scripts in isolated workspaces with automatic versioning
 - Implement ReAct (Reasoning-Acting-Observing) patterns with full transparency
 - Generate detailed JSON logs of each reasoning stage and tool execution
@@ -23,11 +23,11 @@ This project demonstrates both basic agent functionality and advanced ReAct loop
 - Complete audit trail of all script executions
 - Tool communicates actual filenames back to agent for proper artifact tracking
 
-### 🔍 **Native Transparent Agent**
-- Direct Anthropic API integration with native tool calling
-- Enhanced error messages and validation
-- Configurable token limits and timeout handling
-- Comprehensive debugging and observability
+### 🔍 **Unified Multi-Provider LLM Support**
+- **LiteLLM Integration**: Seamless support for Anthropic Claude and OpenAI GPT models through unified interface
+- **Automatic Message Format Conversion**: Transparent conversion between provider-specific formats (tool_use ↔ tool_calls)
+- **Cross-Provider Token Tracking**: Comprehensive cost monitoring across all supported models
+- **Enhanced Compatibility**: Native tool calling works consistently across both Anthropic and OpenAI models
 
 ### 📊 **Retry Ledger System**
 - Tracks tool execution attempts and outcomes
@@ -82,9 +82,13 @@ source .venv/bin/activate && python src/idea_generation_mvp/execution_runner.py 
 
 # Direct ReAct loop test with critic
 source .venv/bin/activate && python transparent_agent_executor.py --task "Analyze causal impact using difference-in-differences" --query-id "test_critic" --react-explicit --critic --console-updates
+
+# Multi-provider examples with OpenAI models
+source .venv/bin/activate && python transparent_agent_executor.py --task "Your analysis task" --model "openai:gpt-5-mini" --react-explicit --critic --console-updates
+source .venv/bin/activate && python run_agent.py --model "openai:gpt-4o-mini" --task "Your task here"
 ```
 
-**Note:** The critic now provides real-time causal inference expertise during execution, achieving high-quality results in a single pass without needing refinement cycles.
+**Note:** The critic now provides real-time causal inference expertise during execution, achieving high-quality results in a single pass without needing refinement cycles. **Both Anthropic and OpenAI models are fully supported** through the unified LiteLLM interface.
 
 ## Quickstart
 
@@ -165,7 +169,7 @@ Each agent run follows this pattern:
 - ✅ **JSON Observability**: Complete tracing of reasoning stages
 - ✅ **Parallel Processing**: Run multiple queries concurrently (5x speedup)
 - ✅ **Configuration-Driven**: YAML config with dotenv support
-- ✅ **Multiple Model Support**: Anthropic Claude, OpenAI GPT models
+- ✅ **Unified Multi-Provider Support**: Seamless integration of Anthropic Claude and OpenAI GPT models via LiteLLM
 - ✅ **Budget Controls**: Configurable tool call limits and timeouts
 - ✅ **Real-time Progress**: Console messages and worker tracking
 - ✅ **Automated Quality Assessment**: LLM judging with accuracy scoring
@@ -343,8 +347,12 @@ Perfect for batch analysis, model evaluation, and production data processing wor
 ✅ **Fixed JSON serialization errors** - Added proper datetime handling
 ✅ **Added tiktoken cost tracking** - Real-time token counting with accurate cost calculation
 ✅ **🤖 Critic System Operational** - Fixed pricing function to support GPT-5 Mini critic (Sept 28)
+✅ **🔧 Critic Code Logging Fixed** - Enhanced critic evaluation logging to capture improved_code suggestions (Sept 28)
 ✅ **📊 Idea Generation MVP Complete** - Domain knowledge-driven analysis generation with evolution
 ✅ **🔄 ReAct Loop Enhanced** - Real-time critic eliminates need for post-hoc refinement cycles
+✅ **🔗 LiteLLM Multi-Provider Integration** - Unified support for Anthropic Claude and OpenAI GPT models (Sept 28)
+✅ **🔄 Cross-Provider Message Format Conversion** - Seamless tool calling compatibility across providers (Sept 28)
+✅ **💰 Universal Token Tracking** - Complete cost monitoring for all supported models via LiteLLM (Sept 28)
 
 ---
 
