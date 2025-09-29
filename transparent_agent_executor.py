@@ -303,8 +303,8 @@ def main():
     parser.add_argument("--workspace", help="Base workspace directory")
     parser.add_argument("--config", default="config/config.yaml",
                        help="Configuration file")
-    parser.add_argument("--console-updates", action="store_true",
-                       help="Enable console update messages")
+    parser.add_argument("--console-updates", action="store_true", default=True,
+                       help="Enable console update messages (default: enabled)")
     parser.add_argument("--react-explicit", action="store_true", default=True,
                        help="Use explicit ReAct loop with formal reasoning")
     parser.add_argument("--critic", action="store_true", default=True,
