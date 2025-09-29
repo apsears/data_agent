@@ -64,6 +64,11 @@ Install:
 uv lock && uv pip install .
 ```
 
+Download dataset (if not already present):
+```bash
+python tools/utils/download_dataset.py
+```
+
 then run, e.g.:
 ```
 source .venv/bin/activate && python run_agent.py --task "What was the total scheduled quantity in Texas during 2023?"

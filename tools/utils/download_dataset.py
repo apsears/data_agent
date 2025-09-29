@@ -51,7 +51,7 @@ def main():
     """Main entry point for dataset download."""
     # Configuration
     GOOGLE_DRIVE_FILE_ID = "109vhmnSLN3oofjFdyb58l_rUZRa0d6C8"
-    OUTPUT_PATH = "data/pipeline_data_1.parquet"
+    OUTPUT_PATH = "data/pipeline_data.parquet"
 
     # Get absolute paths
     script_dir = Path(__file__).parent.parent.parent  # Go up from tools/utils/ to project root
