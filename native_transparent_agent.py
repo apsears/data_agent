@@ -689,12 +689,15 @@ def unified_llm_completion(
         temperature=temperature
     )
 
-    # Normalize response format
+    # Normalize response format with robust token tracking
+    # LiteLLM standardizes to input_tokens and output_tokens for all providers
     normalized_response = {
         "content": [],
         "usage": {
-            "input_tokens": getattr(response.usage, "prompt_tokens", 0),
-            "output_tokens": getattr(response.usage, "completion_tokens", 0)
+            "input_tokens": getattr(response.usage, "input_tokens",
+                                   getattr(response.usage, "prompt_tokens", 0)),
+            "output_tokens": getattr(response.usage, "output_tokens",
+                                    getattr(response.usage, "completion_tokens", 0))
         }
     }
 
@@ -1478,8 +1481,13 @@ You must address these methodological concerns before providing a final answer. 
 
     def _log_model_response(self, response: Any, iteration: int, assistant_content: str, tool_results: list):
         """Log model response with token usage"""
-        input_tokens = getattr(response.usage, 'input_tokens', 0) if hasattr(response, 'usage') else 0
-        output_tokens = getattr(response.usage, 'output_tokens', 0) if hasattr(response, 'usage') else 0
+        # Handle both normalized dict and object response formats
+        if isinstance(response, dict) and "usage" in response:
+            input_tokens = response["usage"].get("input_tokens", 0)
+            output_tokens = response["usage"].get("output_tokens", 0)
+        else:
+            input_tokens = getattr(response.usage, 'input_tokens', 0) if hasattr(response, 'usage') else 0
+            output_tokens = getattr(response.usage, 'output_tokens', 0) if hasattr(response, 'usage') else 0
         total_cost = calculate_token_cost(self.analyst_model, input_tokens, output_tokens)
 
         self.context.log_react_event("explicit_model_response", {
