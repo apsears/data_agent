@@ -10,7 +10,12 @@ Future work: it may not be appropriate to build this sort of iterative analysis 
 ## 🚀 Quick Start
 
 ### 1. Set up the repository:
+
+Create a virtual environment:
+
 ```bash
+uv venv
+
 # Install dependencies
 uv lock && uv pip install .
 
@@ -84,32 +89,6 @@ This example shows:
 - **Comprehensive analysis** including constraint detection and event-study methodology
 - **Cost transparency** with token usage and pricing
 - **Complete artifacts** saved to timestamped workspace directory
-
-## Quickstart
-
-1) **Python 3.11+** recommended.
-
-2) Install dependencies using uv:
-
-```bash
-# Create and activate virtual environment
-uv venv
-source .venv/bin/activate  # On Windows: .venv\Scripts\activate
-
-# Install project and dependencies
-uv pip install .
-```
-
-3) Set up environment variables in `.env` file:
-
-```bash
-# Copy and edit the environment file
-cp .env.example .env  # Create if doesn't exist
-
-# Add your API keys to .env:
-ANTHROPIC_API_KEY=sk-ant-...
-OPENAI_API_KEY=sk-proj-...  # Optional, for OpenAI models
-```
 
 ## How It Works
 
