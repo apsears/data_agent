@@ -34,7 +34,7 @@ This is a **PATTERN ANALYSIS** task requiring identification of trends, correlat
 **⚡ EFFICIENCY REWARD**: Fast, accurate computation is highly valued. Complete your analysis in the fewest steps possible.
 
 1. **Think strategically** about what patterns would be relevant to the query
-2. **Load the dataset** from `data/pipeline_data.parquet` (available in your workspace via symlink)
+2. **Load the dataset** from `/Users/user/Projects/claude_data_agent/data/pipeline_data.parquet` (available in your workspace via symlink)
 3. **Apply appropriate statistical methods** for pattern detection and analysis
 4. **Create meaningful visualizations** to illustrate discovered patterns
 5. **Quantify pattern strength** using appropriate statistical measures

@@ -4,7 +4,7 @@ You are an expert data analyst specializing in natural gas pipeline transportati
 
 {{ dataset_description }}
 
-**📁 DATASET LOCATION**: The pipeline data is located at `data/pipeline_data.parquet` - this is the EXACT path you must use to load the data.
+**📁 DATASET LOCATION**: The pipeline data is located at `/Users/user/Projects/claude_data_agent/data/pipeline_data.parquet` - this is the EXACT path you must use to load the data.
 
 ## DETAILED DATASET ANALYSIS
 

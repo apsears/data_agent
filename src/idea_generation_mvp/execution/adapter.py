@@ -4,6 +4,7 @@ import json
 import subprocess
 import tempfile
 import uuid
+import yaml
 from pathlib import Path
 from typing import Dict, Any, Optional
 from ..core.specifications import IdeaSpec
@@ -16,6 +17,7 @@ class ExecutionAdapter:
         self.config = config
         self.template_dir = "src/idea_generation_mvp/templates"
         self.results_dir = Path("results")
+        self.system_config = self._load_system_config()
 
     def spec_to_query(self, spec: IdeaSpec) -> str:
         """Convert IdeaSpec to natural language query"""
@@ -58,7 +60,7 @@ class ExecutionAdapter:
         batch_data = {
             "dataset_info": {
                 "name": "US Gas Pipeline Transportation Data",
-                "file_path": "data/pipeline_data.parquet",
+                "file_path": self._get_dataset_path(),
                 "record_count": 23854855,
                 "date_range": "2022-01-01 to 2025-08-26"
             },
@@ -172,6 +174,33 @@ class ExecutionAdapter:
                 "error": str(e),
                 "specs": specs
             }
+
+    def _load_system_config(self) -> Dict[str, Any]:
+        """Load system configuration from config.yaml"""
+        config_path = Path("config/config.yaml")
+
+        # Try relative to project root from different working directories
+        for base_path in [Path("."), Path("../.."), Path("../../..")]:
+            full_path = base_path / config_path
+            if full_path.exists():
+                with open(full_path, 'r') as f:
+                    return yaml.safe_load(f)
+
+        # Fallback to empty config if not found
+        return {}
+
+    def _get_dataset_path(self) -> str:
+        """Get dataset path based on configuration"""
+        dataset_config = self.system_config.get("dataset", {})
+
+        # Check if absolute path mode is enabled
+        if dataset_config.get("use_absolute_path", False):
+            absolute_path = dataset_config.get("absolute_path")
+            if absolute_path and Path(absolute_path).exists():
+                return absolute_path
+
+        # Fallback to relative path
+        return dataset_config.get("path", "data/pipeline_data.parquet")
 
     def _determine_category(self, spec: IdeaSpec) -> str:
         """Determine query category from spec"""

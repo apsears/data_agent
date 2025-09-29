@@ -24,7 +24,7 @@ You are an expert data analyst specializing in natural gas pipeline transportati
 ## ANALYSIS APPROACH
 
 1. **Think strategically** about the query and what analysis approach would be most effective
-2. **Load the dataset** from `data/pipeline_data.parquet` (available in your workspace via symlink)
+2. **Load the dataset** from `/Users/user/Projects/claude_data_agent/data/pipeline_data.parquet` (available in your workspace via symlink)
 3. **Apply appropriate filtering, aggregation, or analysis** based on the specific question
 4. **Generate insights** using statistical analysis, visualization, or pattern detection
 5. **Create clear outputs** including charts, summary statistics, or detailed findings

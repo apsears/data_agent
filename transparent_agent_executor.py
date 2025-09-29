@@ -18,7 +18,7 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import tiktoken
-from retry_ledger import RetryLedger, set_current_ledger, print_retry_summary
+from tools.utils.retry_ledger import RetryLedger, set_current_ledger, print_retry_summary
 import yaml
 from dotenv import load_dotenv
 from jinja2 import Template
@@ -249,6 +249,23 @@ def aggregate_costs_from_react_log(workspace_dir: Path) -> Dict[str, Any]:
     }
 
 
+def _setup_dataset_access(workspace_dir: Path) -> None:
+    """Configure dataset access based on configuration - absolute path or symlink."""
+    with open("config/config.yaml", 'r') as f:
+        config = yaml.safe_load(f)
+
+    dataset_config = config.get("dataset", {})
+    use_absolute_path = dataset_config.get("use_absolute_path", False)
+
+    if not use_absolute_path:
+        # Only create symlinks when explicitly configured to use relative paths
+        data_dir = Path("data")
+        if data_dir.exists():
+            symlink_path = workspace_dir / "workspace" / "data"
+            if not symlink_path.exists():
+                symlink_path.symlink_to(data_dir.absolute())
+
+
 def setup_workspace(base_workspace: Optional[str], query_id: str) -> Path:
     """Set up workspace directory for the agent run."""
     if base_workspace:
@@ -265,12 +282,8 @@ def setup_workspace(base_workspace: Optional[str], query_id: str) -> Path:
     # Create workspace subdirectory for analysis files
     (workspace_dir / "workspace").mkdir(exist_ok=True)
 
-    # Create symlink to data directory if it exists
-    data_dir = Path("data")
-    if data_dir.exists():
-        symlink_path = workspace_dir / "workspace" / "data"
-        if not symlink_path.exists():
-            symlink_path.symlink_to(data_dir.absolute())
+    # Setup dataset access (symlink or absolute path based on configuration)
+    _setup_dataset_access(workspace_dir)
 
     return workspace_dir
 

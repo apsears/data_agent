@@ -28,6 +28,8 @@ workspace:
 dataset:
   description: "US Natural Gas Pipeline Transportation Data - Comprehensive dataset containing 23,854,855 records spanning 3.7 years (January 2022 to August 2025) across 169 pipeline companies, 17,528 delivery locations, and 48 states. Includes daily gas scheduling operations with receipt/delivery indicators, transaction categories, geographic data, and scheduled quantities."
   path: "data/pipeline_data.parquet"
+  absolute_path: "/Users/user/Projects/claude_data_agent/data/pipeline_data.parquet"
+  use_absolute_path: true  # When true, use absolute_path instead of creating symlinks
   analysis_file: "/Users/user/Projects/claude_data_agent/docs/2025_09_22_17_31_preliminary_data_analysis.md"
 
 judging:
