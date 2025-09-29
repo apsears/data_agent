@@ -291,8 +291,8 @@ def setup_workspace(base_workspace: Optional[str], query_id: str) -> Path:
 def main():
     parser = argparse.ArgumentParser(description="Run Transparent Agent-based data analysis")
     parser.add_argument("--task", required=True, help="Query to analyze")
-    parser.add_argument("--query-id", required=True, help="Query identifier")
-    parser.add_argument("--template", default="templates/data_analysis_agent_prompt.txt",
+    parser.add_argument("--query-id", help="Query identifier (auto-generated if not provided)")
+    parser.add_argument("--template", default="templates/factual_analysis_agent_prompt.txt",
                        help="Template file path")
     parser.add_argument("--model", default="anthropic:claude-sonnet-4-20250514",
                        help="Model to use")
@@ -305,9 +305,9 @@ def main():
                        help="Configuration file")
     parser.add_argument("--console-updates", action="store_true",
                        help="Enable console update messages")
-    parser.add_argument("--react-explicit", action="store_true",
+    parser.add_argument("--react-explicit", action="store_true", default=True,
                        help="Use explicit ReAct loop with formal reasoning")
-    parser.add_argument("--critic", action="store_true",
+    parser.add_argument("--critic", action="store_true", default=True,
                        help="Enable automatic critic evaluation (requires --react-explicit)")
     parser.add_argument("--critic-model",
                        help="Model to use for critic evaluation")
@@ -315,6 +315,11 @@ def main():
                        help="Model to use for analyst reasoning (when using --react-explicit)")
 
     args = parser.parse_args()
+
+    # Generate default query-id if not provided
+    if not args.query_id:
+        args.query_id = f"auto_{uuid.uuid4().hex[:8]}"
+        print(f"Generated query-id: {args.query_id}")
 
     # Validate arguments
     if args.critic and not args.react_explicit:

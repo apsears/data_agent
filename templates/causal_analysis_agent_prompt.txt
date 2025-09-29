@@ -135,7 +135,7 @@ Your analysis should produce:
 ```json
 {
   "analysis_type": "causal",
-  "answer": "Your complete answer with causal claims and supporting evidence",
+  "answer": "Your complete, readable answer to the query with causal claims and supporting evidence. This should be a comprehensive text response that directly addresses the question asked.",
   "methodology_explanation": "Detailed explanation of your analytical approach: anomaly detection methods, statistical tests used, baseline establishment, threshold selection, and validation procedures. Justify why these methods are appropriate for identifying genuine anomalies versus normal variation.",
   "causal_reasoning": "Comprehensive analysis of potential causes behind observed anomalies or patterns. Discuss possible confounding factors, alternative explanations, and why certain causal interpretations are more plausible than others. Address temporal relationships and mechanism plausibility.",
   "evidence_linkage": "Explanation of how statistical tests, visualizations, and domain knowledge support causal claims. Reference specific artifacts that validate each step of the causal reasoning chain.",

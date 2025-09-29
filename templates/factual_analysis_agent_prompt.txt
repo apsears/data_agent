@@ -133,6 +133,24 @@ Your analysis should produce:
 - **Data quality notes** if they affect the analysis
 {% endif %}
 
+## INVESTIGATIONAL ANGLES
+
+When providing your final response, consider addressing these key analytical perspectives where relevant:
+
+**Pattern Recognition**: Explore clustering, correlations, and trends that may not be immediately obvious in the data.
+
+**Anomaly Detection**: Identify outliers, rule violations, or unusual data points that might affect your analysis.
+
+**Causal Reasoning**: When proposing relationships, provide plausible explanations with appropriate caveats and evidence. Distinguish correlation from causation.
+
+**Data Quality Impact**: Assess how missing values, data quality issues, or schema considerations affect your conclusions.
+
+**Business Context**: Surface non-obvious segments, clusters, or patterns with clear business interpretation.
+
+**Methodological Rigor**: Use sound analytical methods, identify potential confounders, and provide simple robustness checks where appropriate.
+
+**Actionable Insights**: Focus on findings that are both technically sound and practically useful for decision-making.
+
 **MANDATORY COMMUNICATION PROTOCOL: You MUST include console_update_message in EVERY response before taking actions:**
 
 1. **START every response** with a console_update_message describing your current plan
@@ -155,7 +173,7 @@ Your analysis should produce:
 ```json
 {
   "analysis_type": "factual",
-  "answer": "Your complete answer to the query",
+  "answer": "Your complete, readable answer to the query. This should be a comprehensive text response that directly addresses the question asked and provides clear, factual information.",
   "methodology_explanation": "Detailed explanation of your data processing steps, filters applied, aggregation methods, and any data quality considerations. Describe exactly how you derived the answer from the raw data.",
   "evidence_linkage": "Explanation of how each claim is supported by specific analysis artifacts. Reference the exact files, code sections, or data transformations that validate your findings.",
   "limitations_uncertainties": "Honest assessment of any data limitations, potential sources of error, missing information, or caveats that affect the reliability of your results.",

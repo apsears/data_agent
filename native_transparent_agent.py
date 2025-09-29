@@ -128,6 +128,12 @@ class AgentContext:
                     "query_id": self.query_id,
                     **data
                 }
+
+                # Display console message if present and console updates enabled
+                if "console_message" in data and self.console_updates_enabled:
+                    timestamp = datetime.now().strftime("%H:%M:%S")
+                    print(f"[{timestamp}] {data['console_message']}")
+
                 with open(self.react_log_path, 'a', encoding='utf-8') as f:
                     f.write(json.dumps(event, default=str) + '\n')
             except Exception as e:
@@ -439,7 +445,8 @@ class NativeReActExecutor:
         self.context.log_react_event("react_cycle_start", {
             "max_iterations": max_iterations,
             "system_prompt_length": len(system_prompt),
-            "user_query": user_query
+            "user_query": user_query,
+            "console_message": "🚀 Starting analysis cycle"
         })
 
         for iteration in range(max_iterations):
@@ -449,6 +456,12 @@ class NativeReActExecutor:
             })
 
             try:
+                # Console logging before LLM call
+                timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+                react_stage = f"ReAct Iteration {iteration + 1}/{max_iterations} - Analyst Reasoning"
+                if self.context.console_updates_enabled:
+                    print(f"[{timestamp}] 🧠 LLM CALL: {react_stage} | Model: {self.model_name}")
+
                 # Make API call using unified LLM interface
                 response = unified_llm_completion(
                     model=self.model_name,
@@ -646,6 +659,9 @@ def unified_llm_completion(
 
                 # Add tool result messages
                 litellm_messages.extend(tool_results)
+
+                # Skip adding the original message to avoid duplication
+                continue
             else:
                 # For simple text messages, add as-is
                 litellm_messages.append(msg)
@@ -844,6 +860,13 @@ class ExplicitReActExecutor:
     def _call_critic(self, step_data: Dict[str, Any], original_query: str = None, previous_critic_feedback: List[Dict] = None) -> Dict[str, Any]:
         """Call OpenAI critic to evaluate the current step with full context"""
         try:
+            # Console logging before critic LLM call
+            timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+            iteration = step_data.get('iteration', '?')
+            react_stage = f"ReAct Iteration {iteration} - Critic Evaluation"
+            if self.context.console_updates_enabled:
+                print(f"[{timestamp}] 🧠 LLM CALL: {react_stage} | Model: {self.critic_model}")
+
             # Extract code and results if action was code execution
             executed_code = ""
             execution_results = ""
@@ -1263,6 +1286,13 @@ You must address these methodological concerns before providing a final answer. 
 
     def _get_analyst_response(self, system_prompt: str) -> Any:
         """Get response from analyst model using unified LLM interface"""
+        # Console logging before analyst LLM call
+        timestamp = datetime.now().strftime("%H:%M:%S.%f")[:-3]
+        iteration = len(self.react_steps)
+        react_stage = f"ReAct Iteration {iteration + 1} - Analyst Reasoning"
+        if self.context.console_updates_enabled:
+            print(f"[{timestamp}] 🧠 LLM CALL: {react_stage} | Model: {self.analyst_model}")
+
         return unified_llm_completion(
             model=self.analyst_model,
             messages=self.conversation_history,
